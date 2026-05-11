@@ -36,7 +36,7 @@ snapshot:
   name_template: "{{ incpatch .Version }}-next"
 
 changelog:
-  sort: ascF
+  sort: asc
   filters:
     exclude:
       - '^docs:'
