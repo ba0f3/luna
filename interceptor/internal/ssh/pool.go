@@ -45,6 +45,17 @@ var sharedAgent struct {
 	client agent.ExtendedAgent
 }
 
+// sshAgentIssueLogged dedupes agent diagnostics: PublicKeysCallback may call
+// collectAuthSigners many times during one handshake; stderr must stay MCP-safe
+// (no flood) while still surfacing misconfigured MCP environments (missing/wrong SSH_AUTH_SOCK).
+var sshAgentIssueLogged sync.Map // string (message) -> struct{}
+
+func logSSHAgentIssueOnce(msg string) {
+	if _, loaded := sshAgentIssueLogged.LoadOrStore(msg, true); !loaded {
+		log.Print(msg)
+	}
+}
+
 func sharedAgentSigners() ([]gossh.Signer, error) {
 	sock := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
 	if sock == "" {
@@ -66,12 +77,14 @@ func sharedAgentSigners() ([]gossh.Signer, error) {
 
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
+		logSSHAgentIssueOnce(fmt.Sprintf("[SSH] ssh-agent: cannot dial SSH_AUTH_SOCK=%q: %v (agent keys skipped; disk IdentityFile/id_* may still be used)", sock, err))
 		return nil, nil
 	}
 	ac := agent.NewClient(conn)
 	signers, err := ac.Signers()
 	if err != nil {
 		_ = conn.Close()
+		logSSHAgentIssueOnce(fmt.Sprintf("[SSH] ssh-agent: list keys on %q failed: %v (agent keys skipped)", sock, err))
 		return nil, nil
 	}
 	sharedAgent.sock = sock
@@ -99,6 +112,9 @@ func NewPool() *Pool {
 }
 
 // parseTarget splits a target string like user@host:port into its components.
+// It matches OpenSSH behavior: if no explicit user@ prefix is given, it
+// consults ~/.ssh/config User directive (e.g. Host * User root) before
+// falling back to the current OS user.
 func parseTarget(target string) (username, host, port string) {
 	username = "root"
 	if u, err := user.Current(); err == nil {
@@ -107,9 +123,11 @@ func parseTarget(target string) (username, host, port string) {
 	port = "22"
 	host = target
 
+	hasExplicitUser := false
 	if idx := strings.Index(host, "@"); idx != -1 {
 		username = host[:idx]
 		host = host[idx+1:]
+		hasExplicitUser = true
 	}
 
 	if strings.Contains(host, ":") {
@@ -117,6 +135,14 @@ func parseTarget(target string) (username, host, port string) {
 		if err == nil {
 			host = h
 			port = p
+		}
+	}
+
+	// No explicit user@ prefix: consult ~/.ssh/config User directive
+	// for the resolved host (e.g. "Host * User root").
+	if !hasExplicitUser {
+		if cfgUser := ssh_config.Get(host, "User"); cfgUser != "" {
+			username = cfgUser
 		}
 	}
 
@@ -206,7 +232,13 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 	username, host, port := parseTarget(target)
 	addr := net.JoinHostPort(host, port)
 
-	authMethods, err := buildAuthMethods(host)
+	signers, err := collectAuthSigners(host)
+	if err != nil {
+		return nil, fmt.Errorf("build auth for %q: %w", target, err)
+	}
+	logSSHAuthDialPrep(target, username, addr, signers)
+
+	authMethods, err := authMethodsFromSigners(host, signers)
 	if err != nil {
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
@@ -250,10 +282,12 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 			client, err = gossh.Dial("tcp", addr, sshCfg)
 			if err != nil {
 				log.Printf("[SSH] Retry Dial failed for %s: %v", target, err)
+				logSSHAuthDialFailure(signers, err)
 				return nil, fmt.Errorf("dial %s (after algorithm retry): %w", target, err)
 			}
 			log.Printf("[SSH] Retry SUCCESS for %s using %v", target, knownAlgos)
 		} else {
+			logSSHAuthDialFailure(signers, err)
 			return nil, fmt.Errorf("dial %s: %w", target, err)
 		}
 	} else {
@@ -378,6 +412,10 @@ func buildAuthMethods(host string) ([]gossh.AuthMethod, error) {
 	if err != nil {
 		return nil, err
 	}
+	return authMethodsFromSigners(host, signers)
+}
+
+func authMethodsFromSigners(host string, signers []gossh.Signer) ([]gossh.AuthMethod, error) {
 	if len(signers) == 0 {
 		return nil, fmt.Errorf("no SSH auth methods available (no agent, no default keys)")
 	}
@@ -385,6 +423,46 @@ func buildAuthMethods(host string) ([]gossh.AuthMethod, error) {
 		return collectAuthSigners(host)
 	}
 	return []gossh.AuthMethod{gossh.PublicKeysCallback(merged)}, nil
+}
+
+func logSSHAuthDialPrep(target, username, addr string, signers []gossh.Signer) {
+	sock := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
+	sockDesc := "(unset — agent keys unavailable; set SSH_AUTH_SOCK for desktop agents e.g. Bitwarden/1Password)"
+	if sock != "" {
+		sockDesc = sock
+	}
+	log.Printf("[SSH] auth prep target=%q user=%s addr=%s HOME=%s SSH_AUTH_SOCK=%s signer_count=%d keys=%s",
+		target, username, addr, mustHome(), sockDesc, len(signers), signerKeySummaries(signers))
+}
+
+func logSSHAuthDialFailure(signers []gossh.Signer, dialErr error) {
+	if dialErr == nil {
+		return
+	}
+	msg := dialErr.Error()
+	if strings.Contains(msg, "unable to authenticate") || strings.Contains(msg, "no supported methods remain") {
+		log.Printf("[SSH] userauth failed; offered keys were: %s", signerKeySummaries(signers))
+	}
+}
+
+func signerKeySummaries(signers []gossh.Signer) string {
+	if len(signers) == 0 {
+		return "(none)"
+	}
+	const max = 12
+	var b strings.Builder
+	for i, s := range signers {
+		if i >= max {
+			fmt.Fprintf(&b, "; …+%d more", len(signers)-max)
+			break
+		}
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		pub := s.PublicKey()
+		fmt.Fprintf(&b, "%s SHA256:%s", pub.Type(), gossh.FingerprintSHA256(pub))
+	}
+	return b.String()
 }
 
 // DialAuthMethods returns the same SSH client auth methods as the connection pool.

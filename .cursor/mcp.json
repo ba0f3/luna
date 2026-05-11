@@ -1,0 +1,7 @@
+{
+    "mcpServers": {
+        "luna": {
+            "command": "./bin/luna-interceptor"
+        }
+    }
+}
