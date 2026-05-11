@@ -1,8 +1,12 @@
 package security
 
 import (
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // Classification describes whether a command is safe, requires approval, or is forbidden.
@@ -36,34 +40,81 @@ type CheckResult struct {
 	Reason string // human-readable explanation returned to the LLM
 }
 
+// maxCommandLen is the maximum allowed command length in characters.
+// Commands exceeding this are rejected to prevent obfuscation and DoS.
+const maxCommandLen = 4096
+
 // forbiddenPatterns matches commands that are unconditionally blocked.
 // These are catastrophic or irreversible operations.
 var forbiddenPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\brm\s+-[a-z]*r[a-z]*f[a-z]*\s+/`),  // rm -rf /
-	regexp.MustCompile(`(?i)\brm\s+-[a-z]*f[a-z]*r[a-z]*\s+/`),  // rm -fr /
-	regexp.MustCompile(`(?i)\bmkfs\b`),                            // mkfs.*
-	regexp.MustCompile(`(?i)\bdd\s+if=`),                          // dd if=...
-	regexp.MustCompile(`(?i)>\s*/dev/sd[a-z]`),                    // > /dev/sda
-	regexp.MustCompile(`(?i):\(\)\s*\{`),                          // fork bomb
-	regexp.MustCompile(`(?i)\bshred\b`),                           // shred
-	regexp.MustCompile(`(?i)\bwipefs\b`),                          // wipefs
-	regexp.MustCompile(`(?i)\bfdisk\b`),                           // fdisk
-	regexp.MustCompile(`(?i)\bparted\b`),                          // parted
-	regexp.MustCompile(`(?i)\bcrypt\w*\s+luksFormat`),             // cryptsetup luksFormat
-	regexp.MustCompile(`(?i)\biptables\s+-F\b`),                   // iptables -F (flush all rules)
-	regexp.MustCompile(`(?i)\bnft\s+flush\b`),                     // nft flush
-	regexp.MustCompile(`(?i)\bpasswd\b`),                          // passwd (change passwords)
-	regexp.MustCompile(`(?i)\buseradd\b|\buserdel\b|\busermod\b`), // user management
-	regexp.MustCompile(`(?i)\bvisudo\b`),                          // sudoers edit
+	// Recursive forced deletion of root-level paths
+	regexp.MustCompile(`(?i)\brm\s+(?:-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*|-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*|-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*)\s+/(?:\s+|$)`),
+	// Disk/filesystem destruction
+	regexp.MustCompile(`(?i)\bmkfs\b`),            // mkfs.*
+	regexp.MustCompile(`(?i)\bdd\s+if=`),           // dd if=...
+	regexp.MustCompile(`(?i)>\s*/dev/sd[a-z]`),     // > /dev/sda
+	regexp.MustCompile(`(?i)>\s*/dev/nvme`),        // > /dev/nvme
+	regexp.MustCompile(`(?i)>\s*/dev/hd[a-z]`),     // > /dev/hda (old disks)
+	regexp.MustCompile(`(?i)>\s*/dev/mapper/`),     // > /dev/mapper/ (LVM)
+	regexp.MustCompile(`(?i)\bshred\b`),            // shred
+	regexp.MustCompile(`(?i)\bwipefs\b`),           // wipefs
+	regexp.MustCompile(`(?i)\bfdisk\b`),            // fdisk
+	regexp.MustCompile(`(?i)\bparted\b`),           // parted
+	regexp.MustCompile(`(?i)\bcrypt\w*\s+luksFormat`), // cryptsetup luksFormat
+	regexp.MustCompile(`(?i)\bdebugfs\b`),          // debugfs (ext filesystem editor)
+	regexp.MustCompile(`(?i)\btune2fs\b`),          // tune2fs (filesystem parameter changes)
+	regexp.MustCompile(`(?i)\bresize2fs\b`),        // resize2fs
+	regexp.MustCompile(`(?i)\bxfs_growfs\b`),       // xfs_growfs
+	regexp.MustCompile(`(?i)\bfsck\b`),             // fsck (filesystem check/repair)
+	regexp.MustCompile(`(?i)\bbadblocks\b`),        // badblocks (destructive write test)
+	regexp.MustCompile(`(?i)\bhdparm\b`),           // hdparm (dangerous disk parameters)
+	// Fork bomb
+	regexp.MustCompile(`(?i):\(\)\s*\{`),
+	// Firewall flush (locks everyone out)
+	regexp.MustCompile(`(?i)\biptables\s+-F\b`),    // iptables -F (flush all rules)
+	regexp.MustCompile(`(?i)\bnft\s+flush\b`),      // nft flush
+	// Privilege escalation / credential modification
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*passwd\b`),                         // passwd
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*(?:useradd|userdel|usermod)\b`),    // user management
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*(?:groupadd|groupdel|groupmod)\b`), // group management
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*visudo\b`),                        // sudoers edit
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*sudo\b`),                          // sudo (privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*su\b`),                            // su (switch user)
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*doas\b`),                          // doas (OpenBSD privilege escalation)
+	// Kernel module manipulation
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*insmod\b`),   // insmod (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*modprobe\b`), // modprobe (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;])\s*rmmod\b`),    // rmmod (remove kernel module)
+	// Reverse shell / network backdoor patterns
+	regexp.MustCompile(`(?i)\bnc\s+.*-[el]`),                // nc with -e/-l (reverse shell / listener)
+	regexp.MustCompile(`(?i)\bncat\s+.*-[el]`),              // ncat with -e/-l
+	regexp.MustCompile(`(?i)\bsocat\b`),                      // socat (arbitrary bidirectional streams)
+	regexp.MustCompile(`(?i)/dev/tcp/`),                      // bash /dev/tcp backdoor
+	regexp.MustCompile(`(?i)/dev/udp/`),                      // bash /dev/udp backdoor
+	regexp.MustCompile(`(?i)\bbash\s+-i\b`),                  // bash interactive (common in reverse shells)
+	regexp.MustCompile(`(?i)\bpython[23]?\s+.*-[ci]\b`),      // python -c / python -i (code execution)
+	regexp.MustCompile(`(?i)\bperl\s+.*-[ei]\b`),             // perl -e / perl -i (code execution)
+	regexp.MustCompile(`(?i)\bruby\s+.*-[ei]\b`),             // ruby -e / ruby -i (code execution)
+	regexp.MustCompile(`(?i)\bnode\s+.*-[ei]\b`),             // node -e / node -i (code execution)
+	regexp.MustCompile(`(?i)\blua\b`),                        // lua interpreter (code execution)
+	// find with destructive actions
+	regexp.MustCompile(`(?i)\bfind\s+.*-delete\b`),           // find -delete (recursive deletion)
+	regexp.MustCompile(`(?i)\bfind\s+.*-exec\s+rm\b`),       // find -exec rm (recursive deletion)
+	// chmod 777 on critical paths
+	regexp.MustCompile(`(?i)\bchmod\s+(?:[0-7]*777|[0-7]*777[0-7]*)\s+/(?:etc|bin|sbin|usr)\b`),
+	// Writing to system-critical paths via tee
+	regexp.MustCompile(`(?i)\btee\s+/(?:etc/passwd|etc/shadow|etc/sudoers|etc/ssh)\b`),
 }
 
 // readOnlyPrefixes are command prefixes that are always safe.
-// Order matters — checked first.
+// IMPORTANT: These are sorted by length descending before matching so that
+// longer, more-specific prefixes take priority (e.g. "sed -i" before "sed ").
 var readOnlyPrefixes = []string{
 	"systemctl status",
 	"systemctl list-units",
 	"systemctl is-active",
 	"systemctl is-enabled",
+	"systemctl cat",
 	"journalctl",
 	"cat ",
 	"ls",
@@ -84,12 +135,9 @@ var readOnlyPrefixes = []string{
 	"traceroute ",
 	"tracepath ",
 	"mtr ",
-	"curl ",
-	"wget ",
 	"nslookup ",
 	"dig ",
 	"host ",
-	"nmap ",
 	"uname",
 	"uptime",
 	"who",
@@ -99,7 +147,6 @@ var readOnlyPrefixes = []string{
 	"whoami",
 	"hostname",
 	"date",
-	"find ",
 	"locate ",
 	"which ",
 	"whereis ",
@@ -112,8 +159,8 @@ var readOnlyPrefixes = []string{
 	"grep ",
 	"egrep ",
 	"fgrep ",
-	"awk ",
-	"sed ",
+	"awk ",        // awk without -i is read-only; "awk -i" is in mutatingPrefixes
+	"sed ",        // sed without -i is read-only; "sed -i" is in mutatingPrefixes
 	"sort ",
 	"uniq ",
 	"wc ",
@@ -129,7 +176,6 @@ var readOnlyPrefixes = []string{
 	"arp ",
 	"dmesg",
 	"sysctl -a",
-	"sysctl -p",
 	"env",
 	"printenv",
 	"echo ",
@@ -140,6 +186,11 @@ var readOnlyPrefixes = []string{
 	"docker stats",
 	"docker network ls",
 	"docker volume ls",
+	"docker version",
+	"docker info",
+	"docker diff",       // shows filesystem changes (read-only)
+	"docker port",       // shows port mappings (read-only)
+	"docker top",        // shows processes in container (read-only)
 	"kubectl get",
 	"kubectl describe",
 	"kubectl logs",
@@ -147,6 +198,9 @@ var readOnlyPrefixes = []string{
 	"kubectl explain",
 	"kubectl version",
 	"kubectl cluster-info",
+	"kubectl auth can-i",  // check RBAC permissions (read-only)
+	"kubectl api-resources",
+	"kubectl api-versions",
 	"timedatectl",
 	"hostnamectl",
 	"localectl",
@@ -162,7 +216,7 @@ var readOnlyPrefixes = []string{
 	"sar ",
 	"mpstat",
 	"pidstat",
-	"strace -p",
+	"strace -p",    // strace with -p (attach to PID) is read-only observation
 	"ltrace -p",
 	"rpm -q",
 	"dpkg -l",
@@ -182,11 +236,16 @@ var readOnlyPrefixes = []string{
 	"git remote",
 	"crontab -l",
 	"at -l",
-	"systemctl cat",
+	"iptables -L",
+	"iptables -S",
+	"find ",        // find without -delete/-exec is read-only; destructive variants are in forbiddenPatterns
+	"nmap ",        // basic scan only; aggressive modes should be reviewed
 }
 
 // mutatingPrefixes are command prefixes that change system state.
 // Permitted only when allow_mutations=true.
+// IMPORTANT: These are sorted by length descending before matching so that
+// longer, more-specific prefixes take priority (e.g. "sed -i" before "sed ").
 var mutatingPrefixes = []string{
 	"systemctl start",
 	"systemctl stop",
@@ -196,6 +255,7 @@ var mutatingPrefixes = []string{
 	"systemctl disable",
 	"systemctl mask",
 	"systemctl unmask",
+	"systemctl edit",
 	"service ",
 	"apt-get install",
 	"apt-get remove",
@@ -229,8 +289,9 @@ var mutatingPrefixes = []string{
 	"ln ",
 	"tee ",
 	"truncate ",
-	"sed -i",
-	"awk -i",
+	"sed -i",       // in-place file editing
+	"awk -i",       // in-place file editing (awk -i inplace)
+	"perl -i",      // in-place file editing
 	"rm ",
 	"docker start",
 	"docker stop",
@@ -241,6 +302,7 @@ var mutatingPrefixes = []string{
 	"docker run",
 	"docker exec",
 	"docker build",
+	"docker cp",      // copy files in/out of container (data exfil/mutation)
 	"docker-compose",
 	"kubectl apply",
 	"kubectl delete",
@@ -254,6 +316,7 @@ var mutatingPrefixes = []string{
 	"kubectl taint",
 	"kubectl label",
 	"kubectl annotate",
+	"kubectl cp",     // copy files in/out of pod (data exfil/mutation)
 	"iptables -A",
 	"iptables -D",
 	"iptables -I",
@@ -265,6 +328,7 @@ var mutatingPrefixes = []string{
 	"ufw delete",
 	"firewall-cmd",
 	"sysctl -w",
+	"sysctl -p",      // loads values from file — can be mutating
 	"ulimit ",
 	"crontab ",
 	"at ",
@@ -279,15 +343,55 @@ var mutatingPrefixes = []string{
 	"renice ",
 	"mount ",
 	"umount ",
+	"chattr ",       // change file attributes (immutable flag etc.)
+	"lsattr ",       // technically read-only but listed for completeness
+	"setfacl ",      // modify ACLs
+	"tar ",          // extraction overwrites files
+	"unzip ",        // extraction overwrites files
+	"rsync ",        // can delete/overwrite remote files
+	"scp ",          // file transfer (data exfil/mutation)
+	"sftp ",         // file transfer (data exfil/mutation)
 }
 
-// Classify determines whether a command is read-only, mutating, or forbidden.
-// The command string should be the raw shell command as it will be executed.
+// mutatingFlagPatterns matches command+flag combinations that are mutating
+// even though the base command might be read-only.
+// Each pattern is checked against the full command string.
+var mutatingFlagPatterns = []*regexp.Regexp{
+	// curl with data upload or local file write flags
+	regexp.MustCompile(`(?i)\bcurl\s+.*(?:-[A-Za-z]*d|--data|--data-binary|--data-raw|--data-urlencode|--post-file|-T\s|--upload-file)\b`),
+	regexp.MustCompile(`(?i)\bcurl\s+.*(?:-o\s|--output|-O)\b`),
+	// wget with post/upload or output file flags
+	regexp.MustCompile(`(?i)\bwget\s+.*(?:--post-data|--post-file|--body-data|--body-file|-O\s|--output-document)\b`),
+	// find with -exec or -ok (arbitrary command execution)
+	regexp.MustCompile(`(?i)\bfind\s+.*-(?:exec|ok)\b`),
+}
+
+// init sorts prefix lists by length descending so that longer, more-specific
+// prefixes are checked before shorter ones. This prevents "sed " from matching
+// before "sed -i", etc.
+func init() {
+	sortByLengthDesc(readOnlyPrefixes)
+	sortByLengthDesc(mutatingPrefixes)
+}
+
+func sortByLengthDesc(list []string) {
+	sort.Slice(list, func(i, j int) bool {
+		return len(list[i]) > len(list[j])
+	})
+}
+
 func Classify(command string) CheckResult {
 	cmd := strings.TrimSpace(command)
-	lower := strings.ToLower(cmd)
 
-	// 1. Check forbidden patterns first — unconditional.
+	// 0. Reject excessively long commands (obfuscation / DoS vector).
+	if len(cmd) > maxCommandLen {
+		return CheckResult{
+			Class:  Forbidden,
+			Reason: "command exceeds maximum allowed length (potential obfuscation or DoS attempt)",
+		}
+	}
+
+	// 1. Check forbidden patterns first on RAW string (defense-in-depth).
 	for _, re := range forbiddenPatterns {
 		if re.MatchString(cmd) {
 			return CheckResult{
@@ -297,26 +401,132 @@ func Classify(command string) CheckResult {
 		}
 	}
 
-	// 2. Check read-only allowlist.
-	for _, prefix := range readOnlyPrefixes {
-		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
-			return CheckResult{Class: ReadOnly, Reason: ""}
+	// 2. Parse the shell command securely.
+	p := syntax.NewParser()
+	file, err := p.Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return CheckResult{
+			Class:  Mutating,
+			Reason: "command syntax could not be parsed securely — treated as mutating",
 		}
 	}
 
-	// 3. Check known mutating prefixes.
-	for _, prefix := range mutatingPrefixes {
-		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
-			return CheckResult{
-				Class:  Mutating,
-				Reason: "command modifies system state — re-run with allow_mutations=true after user approval",
+	resultClass := ReadOnly
+	var resultReason string
+
+	// Flagging helper
+	flag := func(c Classification, reason string) {
+		if c > resultClass {
+			resultClass = c
+			resultReason = reason
+		}
+	}
+
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if resultClass == Forbidden {
+			return false // stop walking if already forbidden
+		}
+
+		switch x := node.(type) {
+		case *syntax.Redirect:
+			op := x.Op.String()
+			// > and >> and &> and >& modify files. < is read-only input.
+			if strings.Contains(op, ">") {
+				flag(Mutating, "command contains output redirection — re-run with allow_mutations=true after user approval")
+			}
+		case *syntax.CmdSubst, *syntax.ProcSubst:
+			flag(Mutating, "command contains substitution — re-run with allow_mutations=true after user approval")
+		case *syntax.CallExpr:
+			if len(x.Args) == 0 {
+				return true
+			}
+
+			// Reconstruct unquoted command parts to defeat obfuscation (e.g. c'a't)
+			var args []string
+			for _, arg := range x.Args {
+				isStatic := true
+				var builder strings.Builder
+				for _, part := range arg.Parts {
+					switch p := part.(type) {
+					case *syntax.Lit:
+						builder.WriteString(p.Value)
+					case *syntax.SglQuoted:
+						builder.WriteString(p.Value)
+					case *syntax.DblQuoted:
+						for _, dp := range p.Parts {
+							if dpl, ok := dp.(*syntax.Lit); ok {
+								builder.WriteString(dpl.Value)
+							} else {
+								isStatic = false
+							}
+						}
+					default:
+						isStatic = false
+					}
+				}
+				if isStatic {
+					args = append(args, builder.String())
+				} else {
+					args = append(args, "<DYNAMIC>")
+				}
+			}
+
+			// Base command must be statically verifiable
+			if args[0] == "<DYNAMIC>" {
+				flag(Mutating, "dynamic base command — treated as mutating by default")
+				return true
+			}
+
+			// Strip directory path from the binary name (e.g. /usr/bin/rm -> rm)
+			args[0] = filepath.Base(args[0])
+
+			unquotedCmd := strings.Join(args, " ")
+			lowerCmd := strings.ToLower(unquotedCmd)
+
+			// Check forbidden on the unquoted, reconstructed string
+			for _, re := range forbiddenPatterns {
+				if re.MatchString(unquotedCmd) {
+					flag(Forbidden, "command matches a permanently blocked pattern (catastrophic/irreversible operation)")
+					return false
+				}
+			}
+
+			// Check mutating flag patterns
+			for _, re := range mutatingFlagPatterns {
+				if re.MatchString(lowerCmd) {
+					flag(Mutating, "command contains mutating flags — re-run with allow_mutations=true after user approval")
+					return true
+				}
+			}
+
+			// Check mutating prefixes
+			matchedMutating := false
+			for _, prefix := range mutatingPrefixes {
+				if strings.HasPrefix(lowerCmd, strings.ToLower(prefix)) {
+					flag(Mutating, "command modifies system state — re-run with allow_mutations=true after user approval")
+					matchedMutating = true
+					break
+				}
+			}
+			if matchedMutating {
+				return true
+			}
+
+			// Check read-only prefixes
+			matchedReadOnly := false
+			for _, prefix := range readOnlyPrefixes {
+				if strings.HasPrefix(lowerCmd, strings.ToLower(prefix)) {
+					matchedReadOnly = true
+					break
+				}
+			}
+
+			if !matchedReadOnly {
+				flag(Mutating, "unrecognised command — treated as mutating by default; re-run with allow_mutations=true after user approval")
 			}
 		}
-	}
+		return true
+	})
 
-	// 4. Default: treat unrecognised commands as mutating (fail-safe).
-	return CheckResult{
-		Class:  Mutating,
-		Reason: "unrecognised command — treated as mutating by default; re-run with allow_mutations=true after user approval",
-	}
+	return CheckResult{Class: resultClass, Reason: resultReason}
 }

@@ -3,6 +3,10 @@
 An OpenCode-based AI agent for remote Linux systems administration via SSH.
 All remote operations are routed through a Go MCP interceptor with a security gate.
 
+## SSH client compatibility
+
+Luna aims to be **as compatible as practical with your existing OpenSSH client**—the same host you reach with `ssh` should work through the interceptor without re‑inventing credentials or host trust. Concretely, the Go SSH stack follows your **`~/.ssh/known_hosts`**, **`~/.ssh/config`** (where the parser supports it: e.g. `User`, `IdentityFile`, `CertificateFile`, `IdentitiesOnly`, `StrictHostKeyChecking`, `HostKeyAlgorithms`), **`SSH_AUTH_SOCK`**, and common **`~/.ssh/id_*`** keys. Gaps can still exist (e.g. `ProxyJump`, `Match`, or vendor‑specific agent behavior); treat parity as a **design goal** and report mismatches.
+
 ## Architecture
 
 ```
@@ -63,6 +67,7 @@ The `luna-interceptor` MCP server starts automatically.
 - **`allow_mutations` is never set without explicit human approval.**
 - **Known hosts verification** — requires hosts to be in `~/.ssh/known_hosts`.
 - **No credentials in prompts** — SSH agent and default keys are used for authentication.
+- **OpenSSH parity** — see [SSH client compatibility](#ssh-client-compatibility); behavior should match your normal `ssh` setup where supported.
 
 ## Adding a New MCP Tool
 

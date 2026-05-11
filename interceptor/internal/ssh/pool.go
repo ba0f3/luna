@@ -1,15 +1,19 @@
 package ssh
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kevinburke/ssh_config"
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -28,6 +32,63 @@ type ExecResult struct {
 type Pool struct {
 	mu      sync.Mutex
 	clients map[string]*gossh.Client
+}
+
+// sharedAgent holds one ssh-agent connection for the process. Agent-backed
+// Signers call back into this client during SSH auth; closing the connection
+// when listing keys (e.g. defer conn.Close() before auth completes) breaks
+// signing with "use of closed network connection".
+var sharedAgent struct {
+	mu     sync.Mutex
+	sock   string
+	conn   net.Conn
+	client agent.ExtendedAgent
+}
+
+func sharedAgentSigners() ([]gossh.Signer, error) {
+	sock := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
+	if sock == "" {
+		return nil, nil
+	}
+
+	sharedAgent.mu.Lock()
+	defer sharedAgent.mu.Unlock()
+
+	if sharedAgent.client != nil && sharedAgent.sock == sock {
+		return sharedAgent.client.Signers()
+	}
+
+	if sharedAgent.conn != nil {
+		_ = sharedAgent.conn.Close()
+		sharedAgent.conn = nil
+		sharedAgent.client = nil
+	}
+
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		return nil, nil
+	}
+	ac := agent.NewClient(conn)
+	signers, err := ac.Signers()
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil
+	}
+	sharedAgent.sock = sock
+	sharedAgent.conn = conn
+	sharedAgent.client = ac
+	return signers, nil
+}
+
+func closeSharedAgent() {
+	sharedAgent.mu.Lock()
+	defer sharedAgent.mu.Unlock()
+	if sharedAgent.conn != nil {
+		_ = sharedAgent.conn.Close()
+	}
+	sharedAgent.conn = nil
+	sharedAgent.client = nil
+	sharedAgent.sock = ""
 }
 
 // NewPool creates a new SSH connection pool.
@@ -60,6 +121,11 @@ func parseTarget(target string) (username, host, port string) {
 	}
 
 	return username, host, port
+}
+
+// DialTarget splits user@host:port the same way as the connection pool.
+func DialTarget(target string) (username, host, port string) {
+	return parseTarget(target)
 }
 
 // Execute runs command on the named target and returns the result.
@@ -140,14 +206,20 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 	username, host, port := parseTarget(target)
 	addr := net.JoinHostPort(host, port)
 
-	authMethods, err := buildAuthMethods()
+	authMethods, err := buildAuthMethods(host)
 	if err != nil {
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
 
-	khCallback, err := buildKnownHostsCallback()
+	khCallback, err := buildKnownHostsCallback(host)
 	if err != nil {
 		return nil, fmt.Errorf("load known_hosts: %w", err)
+	}
+
+	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
+	hostKeyAlgos, err := HostKeyAlgorithmsForKnownHost(khPath, host, port)
+	if err != nil {
+		log.Printf("[SSH] known_hosts host-key algorithm scan for %s: %v (using crypto/ssh defaults)", host, err)
 	}
 
 	sshCfg := &gossh.ClientConfig{
@@ -156,11 +228,36 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 		HostKeyCallback: khCallback,
 		Timeout:         15 * time.Second,
 	}
+	if len(hostKeyAlgos) > 0 {
+		sshCfg.HostKeyAlgorithms = hostKeyAlgos
+	}
 
-	log.Printf("connecting to %s@%s", username, addr)
+	log.Printf("[SSH] connecting to %s@%s (StrictHostKeyChecking: %s)", username, addr, ssh_config.Get(host, "StrictHostKeyChecking"))
 	client, err := gossh.Dial("tcp", addr, sshCfg)
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", target, err)
+		log.Printf("[SSH] Dial failed for %s: %v", target, err)
+		// Fix for Go x/crypto/ssh algorithm mismatch: if the server presented an unexpected key algorithm,
+		// but we know the correct algorithms from known_hosts, retry restricting HostKeyAlgorithms.
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) && len(keyErr.Want) > 0 {
+			var knownAlgos []string
+			for _, w := range keyErr.Want {
+				knownAlgos = append(knownAlgos, w.Key.Type())
+			}
+			log.Printf("[SSH] host key algorithm mismatch for %s. Server sent %s, but we only have %v in known_hosts. Retrying explicitly with those algorithms.", target, keyErr.Want[0].Key.Type(), knownAlgos)
+
+			sshCfg.HostKeyAlgorithms = knownAlgos
+			client, err = gossh.Dial("tcp", addr, sshCfg)
+			if err != nil {
+				log.Printf("[SSH] Retry Dial failed for %s: %v", target, err)
+				return nil, fmt.Errorf("dial %s (after algorithm retry): %w", target, err)
+			}
+			log.Printf("[SSH] Retry SUCCESS for %s using %v", target, knownAlgos)
+		} else {
+			return nil, fmt.Errorf("dial %s: %w", target, err)
+		}
+	} else {
+		log.Printf("[SSH] Connection established to %s", target)
 	}
 
 	p.clients[target] = client
@@ -184,29 +281,116 @@ func (p *Pool) Close() {
 		}
 	}
 	p.clients = make(map[string]*gossh.Client)
+	closeSharedAgent()
 }
 
-// buildAuthMethods assembles SSH auth methods using agent and default keys.
-func buildAuthMethods() ([]gossh.AuthMethod, error) {
-	var methods []gossh.AuthMethod
+// expandIdentityFilePath expands ~/.ssh/foo and optional double-quotes from ssh_config.
+func expandIdentityFilePath(raw string) string {
+	p := strings.TrimSpace(raw)
+	if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
+		p = p[1 : len(p)-1]
+	}
+	if p == "" || p == "/dev/null" {
+		return ""
+	}
+	if strings.HasPrefix(p, "~/") {
+		p = filepath.Join(mustHome(), p[2:])
+	} else if p == "~" {
+		p = mustHome()
+	}
+	return os.ExpandEnv(p)
+}
 
-	if agentMethod := sshAgentAuth(); agentMethod != nil {
-		methods = append(methods, agentMethod)
+// collectAuthSigners returns distinct signers for host. Order matters: ssh-agent
+// keys first (common with Bitwarden/1Password agents), then ssh_config IdentityFile
+// entries, then default ~/.ssh/id_* files. Putting many disk keys before the agent
+// can exhaust the server's MaxAuthTries before an agent-only identity is tried.
+func collectAuthSigners(host string) ([]gossh.Signer, error) {
+	host = strings.TrimSpace(host)
+	var out []gossh.Signer
+	seen := make(map[string]struct{})
+
+	add := func(s gossh.Signer) {
+		if s == nil {
+			return
+		}
+		k := string(s.PublicKey().Marshal())
+		if _, dup := seen[k]; dup {
+			return
+		}
+		seen[k] = struct{}{}
+		out = append(out, s)
 	}
 
-	for _, name := range []string{"id_ed25519", "id_rsa", "id_ecdsa"} {
-		path := fmt.Sprintf("%s/.ssh/%s", mustHome(), name)
-		if _, err := os.Stat(path); err == nil {
+	ag, _ := sharedAgentSigners()
+	for _, s := range ag {
+		add(s)
+	}
+
+	if host != "" {
+		idFiles := ssh_config.GetAll(host, "IdentityFile")
+		certFiles := ssh_config.GetAll(host, "CertificateFile")
+		for i, raw := range idFiles {
+			path := expandIdentityFilePath(raw)
+			if path == "" {
+				continue
+			}
+			st, err := os.Stat(path)
+			if err != nil || st.IsDir() {
+				continue
+			}
 			if signer, err := loadPrivateKey(path); err == nil {
-				methods = append(methods, gossh.PublicKeys(signer))
+				optCert := ""
+				if i < len(certFiles) {
+					optCert = expandIdentityFilePath(certFiles[i])
+				}
+				add(tryWrapWithCertificate(path, optCert, signer))
 			}
 		}
 	}
 
-	if len(methods) == 0 {
+	for _, name := range []string{"id_ed25519", "id_rsa", "id_ecdsa"} {
+		path := filepath.Join(mustHome(), ".ssh", name)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if signer, err := loadPrivateKey(path); err == nil {
+			add(tryWrapWithCertificate(path, "", signer))
+		}
+	}
+
+	return out, nil
+}
+
+// AuthSignerCount returns how many distinct public keys would be offered for host
+// (for diagnostics). It performs the same collection as DialAuthMethods.
+func AuthSignerCount(host string) (int, error) {
+	s, err := collectAuthSigners(host)
+	return len(s), err
+}
+
+// buildAuthMethods returns a single publickey AuthMethod whose callback merges
+// SSH_AUTH_SOCK agent keys, ssh_config IdentityFile entries, and default ~/.ssh/id_*.
+// crypto/ssh only runs the first "publickey" entry in ClientConfig.Auth; multiple
+// separate PublicKeys/PublicKeysCallback methods would hide later keys.
+func buildAuthMethods(host string) ([]gossh.AuthMethod, error) {
+	signers, err := collectAuthSigners(host)
+	if err != nil {
+		return nil, err
+	}
+	if len(signers) == 0 {
 		return nil, fmt.Errorf("no SSH auth methods available (no agent, no default keys)")
 	}
-	return methods, nil
+	merged := func() ([]gossh.Signer, error) {
+		return collectAuthSigners(host)
+	}
+	return []gossh.AuthMethod{gossh.PublicKeysCallback(merged)}, nil
+}
+
+// DialAuthMethods returns the same SSH client auth methods as the connection pool.
+// Pass the ssh Host alias or hostname used for IdentityFile lookups (same as DialTarget host).
+func DialAuthMethods(host string) ([]gossh.AuthMethod, error) {
+	return buildAuthMethods(host)
 }
 
 // loadPrivateKey reads and parses a PEM-encoded private key file.
@@ -222,30 +406,100 @@ func loadPrivateKey(path string) (gossh.Signer, error) {
 	return signer, nil
 }
 
-// sshAgentAuth returns an auth method that delegates to the running SSH agent.
-func sshAgentAuth() gossh.AuthMethod {
-	sock := os.Getenv("SSH_AUTH_SOCK")
-	if sock == "" {
+// tryWrapWithCertificate returns a CertSigner if certPathOptional or path-cert.pub
+// contains an SSH user certificate for the same public key as signer; otherwise signer.
+func tryWrapWithCertificate(privKeyPath, certPathOptional string, signer gossh.Signer) gossh.Signer {
+	if signer == nil {
 		return nil
 	}
-	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		return nil
+	var candidates []string
+	if cp := strings.TrimSpace(certPathOptional); cp != "" {
+		candidates = append(candidates, cp)
 	}
-	agentClient := agent.NewClient(conn)
-	return gossh.PublicKeysCallback(agentClient.Signers)
+	candidates = append(candidates, privKeyPath+"-cert.pub")
+	for _, cp := range candidates {
+		if cp == "" {
+			continue
+		}
+		data, err := os.ReadFile(cp)
+		if err != nil {
+			continue
+		}
+		pub, err := gossh.ParsePublicKey(data)
+		if err != nil {
+			continue
+		}
+		cert, ok := pub.(*gossh.Certificate)
+		if !ok {
+			continue
+		}
+		if !bytes.Equal(cert.Key.Marshal(), signer.PublicKey().Marshal()) {
+			continue
+		}
+		if cs, err := gossh.NewCertSigner(cert, signer); err == nil {
+			return cs
+		}
+	}
+	return signer
 }
 
-// buildKnownHostsCallback creates a host key callback from ~/.ssh/known_hosts.
-func buildKnownHostsCallback() (gossh.HostKeyCallback, error) {
+// buildKnownHostsCallback creates a host key callback from ~/.ssh/known_hosts
+// that respects ~/.ssh/config StrictHostKeyChecking settings (no, accept-new).
+func buildKnownHostsCallback(targetHost string) (gossh.HostKeyCallback, error) {
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
-	if _, err := os.Stat(khPath); os.IsNotExist(err) {
-		log.Printf("WARN: %s not found; new host connections will be rejected", khPath)
-		return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
-			return fmt.Errorf("host %q not in known_hosts and file is missing — run: ssh-keyscan %s >> ~/.ssh/known_hosts", hostname, hostname)
-		}, nil
+
+	var khCallback gossh.HostKeyCallback
+	if _, err := os.Stat(khPath); !os.IsNotExist(err) {
+		cb, err := knownhosts.New(khPath)
+		if err != nil {
+			return nil, fmt.Errorf("parse known_hosts: %w", err)
+		}
+		khCallback = cb
 	}
-	return knownhosts.New(khPath)
+
+	return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
+		var checkErr error
+		if khCallback != nil {
+			checkErr = khCallback(hostname, remote, key)
+			if checkErr == nil {
+				return nil
+			}
+		} else {
+			checkErr = fmt.Errorf("known_hosts file not found")
+		}
+
+		// Read StrictHostKeyChecking for the target host
+		strict := strings.ToLower(ssh_config.Get(targetHost, "StrictHostKeyChecking"))
+
+		if strict == "no" || strict == "false" {
+			log.Printf("WARN: bypassing host key check for %s due to StrictHostKeyChecking=%s", targetHost, strict)
+			return nil
+		}
+
+		if strict == "accept-new" {
+			var keyErr *knownhosts.KeyError
+			if errors.As(checkErr, &keyErr) {
+				// If Want is empty, there were NO keys for this host (completely new).
+				if len(keyErr.Want) == 0 {
+					log.Printf("INFO: auto-accepting new host key for %s due to StrictHostKeyChecking=accept-new", targetHost)
+					return nil
+				}
+			} else if checkErr.Error() == "known_hosts file not found" {
+				log.Printf("INFO: auto-accepting new host key for %s because known_hosts is missing", targetHost)
+				return nil
+			}
+		}
+
+		// Provide a more helpful error message
+		if checkErr != nil {
+			if strict == "ask" || strict == "" {
+				return fmt.Errorf("%w (StrictHostKeyChecking=%s, use 'ssh %s' to accept or set accept-new in config)", checkErr, strict, targetHost)
+			}
+			return fmt.Errorf("%w", checkErr)
+		}
+
+		return nil
+	}, nil
 }
 
 func mustHome() string {

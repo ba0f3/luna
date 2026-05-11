@@ -1,12 +1,11 @@
 {
     "$schema": "https://opencode.ai/config.json",
     "instructions": [
-        "AGENTS.md",
         "instructions/instructions.md"
     ],
     "default_agent": "luna",
     "permission": {
-        "bash": "deny",
+        "bash": "ask",
         "edit": "ask"
     },
     "mcp": {

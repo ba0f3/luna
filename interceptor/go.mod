@@ -3,9 +3,11 @@ module github.com/ba0f3/luna/interceptor
 go 1.25.5
 
 require (
+	github.com/kevinburke/ssh_config v1.6.0
 	github.com/mark3labs/mcp-go v0.52.0
 	github.com/pkg/sftp v1.13.10
 	golang.org/x/crypto v0.51.0
+	mvdan.cc/sh/v3 v3.13.1
 )
 
 require (
