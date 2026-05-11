@@ -1,0 +1,11 @@
+# Built binaries
+bin/
+
+# Real host configs (contain IP addresses / usernames)
+interceptor/hosts.yaml
+
+# Go artifacts
+interceptor/vendor/
+
+# Logs
+*.log
