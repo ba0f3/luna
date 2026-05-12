@@ -151,6 +151,12 @@ func TestClassify(t *testing.T) {
 		{"Forbidden - cryptsetup luksFormat", "cryptsetup luksFormat /dev/sda1", Forbidden},
 		{"Forbidden - nft flush", "nft flush ruleset", Forbidden},
 
+		// ── Escaping attacks ────────────────────────────────────
+		{"Escaping - sudo", `s\udo su`, Forbidden},
+		{"Escaping - rm", `\rm -rf /`, Forbidden},
+		{"Escaping - cat", `c\a\t /etc/passwd`, ReadOnly},
+		{"Escaping - quotes", `c"a"\t /etc/shadow`, ReadOnly},
+
 		// ── Bypass attempts (composite commands) ────────────────
 		{"Bypass - readonly prefix with mutating suffix", "cat /etc/passwd; touch /tmp/hacked", Mutating},
 		{"Bypass - readonly pipe to mutating", "echo hello | tee /tmp/hacked", Mutating},

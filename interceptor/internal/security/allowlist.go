@@ -380,6 +380,27 @@ func sortByLengthDesc(list []string) {
 	})
 }
 
+// unescape removes backslash escapes from a string (e.g. "s\\udo" -> "sudo")
+// to prevent attackers from bypassing the allowlist by escaping characters.
+func unescape(s string) string {
+	var b strings.Builder
+	escaping := false
+	for _, ch := range s {
+		if escaping {
+			b.WriteRune(ch)
+			escaping = false
+		} else if ch == '\\' {
+			escaping = true
+		} else {
+			b.WriteRune(ch)
+		}
+	}
+	if escaping {
+		b.WriteRune('\\')
+	}
+	return b.String()
+}
+
 func Classify(command string) CheckResult {
 	cmd := strings.TrimSpace(command)
 
@@ -449,13 +470,13 @@ func Classify(command string) CheckResult {
 				for _, part := range arg.Parts {
 					switch p := part.(type) {
 					case *syntax.Lit:
-						builder.WriteString(p.Value)
+						builder.WriteString(unescape(p.Value))
 					case *syntax.SglQuoted:
 						builder.WriteString(p.Value)
 					case *syntax.DblQuoted:
 						for _, dp := range p.Parts {
 							if dpl, ok := dp.(*syntax.Lit); ok {
-								builder.WriteString(dpl.Value)
+								builder.WriteString(unescape(dpl.Value))
 							} else {
 								isStatic = false
 							}
