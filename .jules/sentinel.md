@@ -1,4 +1,5 @@
-## 2025-05-12 - [Critical] Fix command obfuscation bypass via shell escaping
-**Vulnerability:** The command string parser (`mvdan.cc/sh/v3/syntax`) retains backslash escapes in `*syntax.Lit` values. This allowed attackers to bypass command validation by obfuscating forbidden or mutating commands (e.g., `s\udo`, `\rm`).
-**Learning:** Shell parsers provide exact literal strings; static validation must perform "quote removal" and unescaping to normalize the command to what Bash will actually execute.
-**Prevention:** An `unescape` helper was added to strip literal backslashes during AST walking before comparing against allow/deny lists.
+## 2024-05-18 - Insecure prefix matching in allowlist bypass
+
+**Vulnerability:** The security interceptor used a string prefix check (`strings.HasPrefix`) to block mutating commands like `sed -i` while allowing `sed` as read-only.
+**Learning:** This approach is inherently flawed for command-line tools because flags can be reordered. An attacker can place another flag (like `-e`) *before* the blocked flag (e.g., `sed -e 's/a/b/' -i file.txt`), causing the prefix check to fail and allowing the mutating command to bypass the block.
+**Prevention:** Rely on regular expressions across the full command string for checking the presence of security-sensitive flags, rather than simple prefix matching. Make sure that regex matches full flags carefully by using `(?:\s|$)` boundaries and `[^\s]*` to catch attached options like `-ibak` without capturing parts of filenames like `my-file-i.txt`.
