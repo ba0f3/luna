@@ -93,7 +93,7 @@ var forbiddenPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)/dev/udp/`),                      // bash /dev/udp backdoor
 	regexp.MustCompile(`(?i)\bbash\s+-i\b`),                  // bash interactive (common in reverse shells)
 	regexp.MustCompile(`(?i)\bpython[23]?\s+.*-[ci]\b`),      // python -c / python -i (code execution)
-	regexp.MustCompile(`(?i)\bperl\s+.*-[ei]\b`),             // perl -e / perl -i (code execution)
+	regexp.MustCompile(`(?i)\bperl\s+(?:.*?\s)?-[a-z]*[ei][^\s]*(?:\s|$)`), // perl -e / perl -i (code execution)
 	regexp.MustCompile(`(?i)\bruby\s+.*-[ei]\b`),             // ruby -e / ruby -i (code execution)
 	regexp.MustCompile(`(?i)\bnode\s+.*-[ei]\b`),             // node -e / node -i (code execution)
 	regexp.MustCompile(`(?i)\blua\b`),                        // lua interpreter (code execution)
@@ -289,9 +289,6 @@ var mutatingPrefixes = []string{
 	"ln ",
 	"tee ",
 	"truncate ",
-	"sed -i",       // in-place file editing
-	"awk -i",       // in-place file editing (awk -i inplace)
-	"perl -i",      // in-place file editing
 	"rm ",
 	"docker start",
 	"docker stop",
@@ -364,6 +361,10 @@ var mutatingFlagPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bwget\s+.*(?:--post-data|--post-file|--body-data|--body-file|-O\s|--output-document)\b`),
 	// find with -exec or -ok (arbitrary command execution)
 	regexp.MustCompile(`(?i)\bfind\s+.*-(?:exec|ok)\b`),
+	// sed with in-place editing flag
+	regexp.MustCompile(`(?i)\bsed\s+(?:.*?\s)?(?:-[a-z]*i[^\s]*|--in-place)(?:\s|$)`),
+	// awk with in-place editing flag
+	regexp.MustCompile(`(?i)\bawk\s+(?:.*?\s)?-[a-z]*i[^\s]*(?:\s|$)`),
 }
 
 // init sorts prefix lists by length descending so that longer, more-specific
