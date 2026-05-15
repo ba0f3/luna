@@ -44,6 +44,9 @@ func TestClassify(t *testing.T) {
 		{"ReadOnly - kubectl api-versions", "kubectl api-versions", ReadOnly},
 		{"ReadOnly - sed without -i", "sed 's/old/new/g' file.txt", ReadOnly},
 		{"ReadOnly - awk without -i", "awk '{print $1}' file.txt", ReadOnly},
+		{"ReadOnly - ps exact", "ps", ReadOnly},
+		{"ReadOnly - id exact", "id", ReadOnly},
+		{"ReadOnly - w exact", "w", ReadOnly},
 
 		// ── Mutating ────────────────────────────────────────────
 		{"Mutating - systemctl restart", "systemctl restart nginx", Mutating},
@@ -176,6 +179,9 @@ func TestClassify(t *testing.T) {
 		{"Bypass - append redirection", "echo foo >> /tmp/foo", Mutating},
 		{"Bypass - escape characters", "\\r\\m -rf /tmp/foo", Mutating},
 		{"Bypass - quoted command", "\"rm\" -rf /tmp/foo", Mutating},
+		{"Bypass - env touch", "env touch /tmp/hacked", Mutating},
+		{"Bypass - env sudo", "env sudo rm -rf /", Forbidden},
+		{"Bypass - echo sudo", "echo sudo rm -rf /", Forbidden},
 
 		// ── Path-qualified commands ─────────────────────────────
 		{"Path - /usr/bin/rm", "/usr/bin/rm /tmp/file", Mutating},

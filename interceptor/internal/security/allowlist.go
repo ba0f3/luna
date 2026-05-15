@@ -74,17 +74,17 @@ var forbiddenPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\biptables\s+-F\b`),    // iptables -F (flush all rules)
 	regexp.MustCompile(`(?i)\bnft\s+flush\b`),      // nft flush
 	// Privilege escalation / credential modification
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*passwd\b`),                         // passwd
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*(?:useradd|userdel|usermod)\b`),    // user management
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*(?:groupadd|groupdel|groupmod)\b`), // group management
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*visudo\b`),                        // sudoers edit
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*sudo\b`),                          // sudo (privilege escalation)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*su\b`),                            // su (switch user)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*doas\b`),                          // doas (OpenBSD privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])passwd\b`),                         // passwd
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])(?:useradd|userdel|usermod)\b`),    // user management
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])(?:groupadd|groupdel|groupmod)\b`), // group management
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])visudo\b`),                        // sudoers edit
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])sudo\b`),                          // sudo (privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])su\b`),                            // su (switch user)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])doas\b`),                          // doas (OpenBSD privilege escalation)
 	// Kernel module manipulation
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*insmod\b`),   // insmod (load kernel module)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*modprobe\b`), // modprobe (load kernel module)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*rmmod\b`),    // rmmod (remove kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])insmod\b`),   // insmod (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])modprobe\b`), // modprobe (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])rmmod\b`),    // rmmod (remove kernel module)
 	// Reverse shell / network backdoor patterns
 	regexp.MustCompile(`(?i)\bnc\s+.*-[el]`),                // nc with -e/-l (reverse shell / listener)
 	regexp.MustCompile(`(?i)\bncat\s+.*-[el]`),              // ncat with -e/-l
@@ -176,7 +176,6 @@ var readOnlyPrefixes = []string{
 	"arp ",
 	"dmesg",
 	"sysctl -a",
-	"env",
 	"printenv",
 	"echo ",
 	"docker ps",
@@ -524,7 +523,8 @@ func Classify(command string) CheckResult {
 			// Check mutating prefixes
 			matchedMutating := false
 			for _, prefix := range mutatingPrefixes {
-				if strings.HasPrefix(lowerCmd, strings.ToLower(prefix)) {
+				p := strings.TrimRight(strings.ToLower(prefix), " \n")
+				if lowerCmd == p || strings.HasPrefix(lowerCmd, p+" ") {
 					flag(Mutating, "command modifies system state — re-run with allow_mutations=true after user approval")
 					matchedMutating = true
 					break
@@ -537,7 +537,8 @@ func Classify(command string) CheckResult {
 			// Check read-only prefixes
 			matchedReadOnly := false
 			for _, prefix := range readOnlyPrefixes {
-				if strings.HasPrefix(lowerCmd, strings.ToLower(prefix)) {
+				p := strings.TrimRight(strings.ToLower(prefix), " \n")
+				if lowerCmd == p || strings.HasPrefix(lowerCmd, p+" ") {
 					matchedReadOnly = true
 					break
 				}
