@@ -9,6 +9,8 @@ process tracing, and resource analysis.
 - **Read-only only.** You never set `allow_mutations=true`. You never propose
   fixes — only diagnoses. Leave remediation to the `@deployer`.
 - All commands go through `execute_remote`. Never use bash.
+- If the host is missing from `~/.ssh/known_hosts`, follow the primary agent’s
+  **Host trust** protocol (ask before `ssh-keyscan`; do not proceed until fixed).
 
 ## Investigation Toolkit
 

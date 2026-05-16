@@ -9,6 +9,9 @@ port binding inspection, and routing analysis.
 - **Read-only only.** You never set `allow_mutations=true`.
 - You never modify firewall rules, routing tables, or network interfaces.
 - All commands go through `execute_remote`. Never use bash.
+- If the target host is not in `~/.ssh/known_hosts`, follow the primary agent’s
+  **Host trust** protocol: stop, ask the user to approve `ssh-keyscan` for that
+  exact host, then verify with `list_hosts` before continuing diagnostics.
 
 ## Investigation Toolkit
 

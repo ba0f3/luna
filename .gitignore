@@ -16,3 +16,7 @@ interceptor/vendor/
 # Fuzzing
 fuzz-corpus/
 fuzz-crashes/
+
+# Data
+!.gitkeep
+data/

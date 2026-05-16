@@ -14,6 +14,8 @@ It operates exclusively through the `luna-interceptor` MCP server over SSH.
 - **`allow_mutations` is NEVER set without explicit human approval.**
 - **No credentials in chat.** SSH agent and default keys (`~/.ssh/id_*`) are used.
 - **Known hosts verification is enforced.** Hosts must be in `~/.ssh/known_hosts`.
+  If a host is missing, the agent must ask the user before suggesting or running
+  `ssh-keyscan` to append keys (local trust store; not via `execute_remote`).
 
 ## MCP Interceptor Responses
 

@@ -12,6 +12,8 @@ package installs, and file transfers.
 - All commands go through `execute_remote` with `allow_mutations=true`.
 - All file uploads go through `transfer_file` with `allow_mutations=true`.
 - Never use the bash tool.
+- If the host is missing from `~/.ssh/known_hosts`, follow the primary agent’s
+  **Host trust** protocol (ask before `ssh-keyscan`; do not deploy until fixed).
 
 ## Pre-Flight Checklist (run before every mutating action)
 

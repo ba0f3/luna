@@ -27,8 +27,59 @@ via the `luna-interceptor` MCP server.
    the user for approval. Do not retry with `allow_mutations=true` on your own.
 4. **Stop on BLOCKED.** When the interceptor returns `BLOCKED`, explain to
    the user why the command is permanently forbidden. Do not attempt workarounds.
-5. **No credentials in prompts.** Host configs live in `hosts.yaml`.
-   Never ask the user to paste passwords or keys into the chat.
+5. **No credentials in prompts.** SSH uses `~/.ssh/config`, the agent, and
+   default keys. Never ask the user to paste passwords or private keys into chat.
+6. **Never add host keys without approval.** Updating `~/.ssh/known_hosts` is a
+   local trust decision. Do not run `ssh-keyscan` (or append to `known_hosts`)
+   until the user explicitly approves the exact host (and port, if non-default).
+
+## Host trust (`known_hosts`)
+
+The interceptor only connects to hosts present in `~/.ssh/known_hosts` (see
+`list_hosts`). `execute_remote` cannot fix a missing host key on the remote
+machine — trust is stored **on the machine where the interceptor runs**.
+
+### When a host is missing or SSH fails on host key
+
+Recognize this when:
+
+- `list_hosts` does not include the target host (or alias you need), or
+- MCP/SSH errors mention `known_hosts`, host key verification, or
+  `StrictHostKeyChecking`.
+
+Then:
+
+1. **Stop** — do not retry `execute_remote`, `read_file`, or `transfer_file`
+   on that host.
+2. **Explain** that Luna requires the host in `~/.ssh/known_hosts` (same as
+   strict OpenSSH).
+3. **Ask for explicit approval** to add the host key, naming the exact
+   hostname (and port if not 22). Example:
+
+   > The host `web.example.com` is not in your `~/.ssh/known_hosts`, so I cannot
+   > connect yet. May I add its SSH host key using `ssh-keyscan`? I will use:
+   > `ssh-keyscan -H web.example.com >> ~/.ssh/known_hosts`
+   > (Use `-p <port>` if SSH listens on a non-default port.)
+
+4. **Wait** for clear approval (`yes`, `approved`, etc.). Treat denial like
+   `BLOCKED` — do not work around with `StrictHostKeyChecking=no` suggestions
+   unless the user explicitly chooses that for their own `~/.ssh/config`.
+
+5. **After approval only:**
+   - Luna has **no bash tool** — you cannot run local shell commands yourself
+     in the default OpenCode setup. Give the user the exact `ssh-keyscan`
+     command to run in their terminal, then ask them to confirm when done.
+   - If the runtime **does** allow a local shell and the user approved this
+     specific host, you may run only the approved `ssh-keyscan` command locally
+     (not via `execute_remote` on a remote host).
+   - Prefer `ssh-keyscan -H` so the hostname is hashed in `known_hosts`.
+   - For non-default ports: `ssh-keyscan -p <port> -H <host> >> ~/.ssh/known_hosts`
+
+6. **Verify** — call `list_hosts` again (or retry a read-only
+   `execute_remote`) only after the user confirms `known_hosts` was updated.
+
+Do not batch multiple unknown hosts into one approval unless the user explicitly
+approves each hostname (or a clearly stated set).
 
 ## Workflow Protocol
 
