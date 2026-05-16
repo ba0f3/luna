@@ -50,56 +50,56 @@ var forbiddenPatterns = []*regexp.Regexp{
 	// Recursive forced deletion of root-level paths
 	regexp.MustCompile(`(?i)\brm\s+(?:-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*|-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*|-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*)\s+/(?:\s+|$)`),
 	// Disk/filesystem destruction
-	regexp.MustCompile(`(?i)\bmkfs\b`),            // mkfs.*
-	regexp.MustCompile(`(?i)\bdd\s+if=`),           // dd if=...
-	regexp.MustCompile(`(?i)>\s*/dev/sd[a-z]`),     // > /dev/sda
-	regexp.MustCompile(`(?i)>\s*/dev/nvme`),        // > /dev/nvme
-	regexp.MustCompile(`(?i)>\s*/dev/hd[a-z]`),     // > /dev/hda (old disks)
-	regexp.MustCompile(`(?i)>\s*/dev/mapper/`),     // > /dev/mapper/ (LVM)
-	regexp.MustCompile(`(?i)\bshred\b`),            // shred
-	regexp.MustCompile(`(?i)\bwipefs\b`),           // wipefs
-	regexp.MustCompile(`(?i)\bfdisk\b`),            // fdisk
-	regexp.MustCompile(`(?i)\bparted\b`),           // parted
+	regexp.MustCompile(`(?i)\bmkfs\b`),                // mkfs.*
+	regexp.MustCompile(`(?i)\bdd\s+if=`),              // dd if=...
+	regexp.MustCompile(`(?i)>\s*/dev/sd[a-z]`),        // > /dev/sda
+	regexp.MustCompile(`(?i)>\s*/dev/nvme`),           // > /dev/nvme
+	regexp.MustCompile(`(?i)>\s*/dev/hd[a-z]`),        // > /dev/hda (old disks)
+	regexp.MustCompile(`(?i)>\s*/dev/mapper/`),        // > /dev/mapper/ (LVM)
+	regexp.MustCompile(`(?i)\bshred\b`),               // shred
+	regexp.MustCompile(`(?i)\bwipefs\b`),              // wipefs
+	regexp.MustCompile(`(?i)\bfdisk\b`),               // fdisk
+	regexp.MustCompile(`(?i)\bparted\b`),              // parted
 	regexp.MustCompile(`(?i)\bcrypt\w*\s+luksFormat`), // cryptsetup luksFormat
-	regexp.MustCompile(`(?i)\bdebugfs\b`),          // debugfs (ext filesystem editor)
-	regexp.MustCompile(`(?i)\btune2fs\b`),          // tune2fs (filesystem parameter changes)
-	regexp.MustCompile(`(?i)\bresize2fs\b`),        // resize2fs
-	regexp.MustCompile(`(?i)\bxfs_growfs\b`),       // xfs_growfs
-	regexp.MustCompile(`(?i)\bfsck\b`),             // fsck (filesystem check/repair)
-	regexp.MustCompile(`(?i)\bbadblocks\b`),        // badblocks (destructive write test)
-	regexp.MustCompile(`(?i)\bhdparm\b`),           // hdparm (dangerous disk parameters)
+	regexp.MustCompile(`(?i)\bdebugfs\b`),             // debugfs (ext filesystem editor)
+	regexp.MustCompile(`(?i)\btune2fs\b`),             // tune2fs (filesystem parameter changes)
+	regexp.MustCompile(`(?i)\bresize2fs\b`),           // resize2fs
+	regexp.MustCompile(`(?i)\bxfs_growfs\b`),          // xfs_growfs
+	regexp.MustCompile(`(?i)\bfsck\b`),                // fsck (filesystem check/repair)
+	regexp.MustCompile(`(?i)\bbadblocks\b`),           // badblocks (destructive write test)
+	regexp.MustCompile(`(?i)\bhdparm\b`),              // hdparm (dangerous disk parameters)
 	// Fork bomb
 	regexp.MustCompile(`(?i):\(\)\s*\{`),
 	// Firewall flush (locks everyone out)
-	regexp.MustCompile(`(?i)\biptables\s+-F\b`),    // iptables -F (flush all rules)
-	regexp.MustCompile(`(?i)\bnft\s+flush\b`),      // nft flush
+	regexp.MustCompile(`(?i)\biptables\s+-F\b`), // iptables -F (flush all rules)
+	regexp.MustCompile(`(?i)\bnft\s+flush\b`),   // nft flush
 	// Privilege escalation / credential modification
 	regexp.MustCompile(`(?i)(?:^|[|&;])passwd\b`),                         // passwd
 	regexp.MustCompile(`(?i)(?:^|[|&;])(?:useradd|userdel|usermod)\b`),    // user management
 	regexp.MustCompile(`(?i)(?:^|[|&;])(?:groupadd|groupdel|groupmod)\b`), // group management
-	regexp.MustCompile(`(?i)(?:^|[|&;])visudo\b`),                        // sudoers edit
-	regexp.MustCompile(`(?i)(?:^|[|&;])sudo\b`),                          // sudo (privilege escalation)
-	regexp.MustCompile(`(?i)(?:^|[|&;])su\b`),                            // su (switch user)
-	regexp.MustCompile(`(?i)(?:^|[|&;])doas\b`),                          // doas (OpenBSD privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;])visudo\b`),                         // sudoers edit
+	regexp.MustCompile(`(?i)(?:^|[|&;])sudo\b`),                           // sudo (privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;])su\b`),                             // su (switch user)
+	regexp.MustCompile(`(?i)(?:^|[|&;])doas\b`),                           // doas (OpenBSD privilege escalation)
 	// Kernel module manipulation
 	regexp.MustCompile(`(?i)(?:^|[|&;])insmod\b`),   // insmod (load kernel module)
 	regexp.MustCompile(`(?i)(?:^|[|&;])modprobe\b`), // modprobe (load kernel module)
 	regexp.MustCompile(`(?i)(?:^|[|&;])rmmod\b`),    // rmmod (remove kernel module)
 	// Reverse shell / network backdoor patterns
-	regexp.MustCompile(`(?i)\bnc\s+.*-[el]`),                // nc with -e/-l (reverse shell / listener)
-	regexp.MustCompile(`(?i)\bncat\s+.*-[el]`),              // ncat with -e/-l
-	regexp.MustCompile(`(?i)\bsocat\b`),                      // socat (arbitrary bidirectional streams)
-	regexp.MustCompile(`(?i)/dev/tcp/`),                      // bash /dev/tcp backdoor
-	regexp.MustCompile(`(?i)/dev/udp/`),                      // bash /dev/udp backdoor
-	regexp.MustCompile(`(?i)\bbash\s+-i\b`),                  // bash interactive (common in reverse shells)
-	regexp.MustCompile(`(?i)\bpython[23]?\s+.*-[ci]\b`),      // python -c / python -i (code execution)
+	regexp.MustCompile(`(?i)\bnc\s+.*-[el]`),                               // nc with -e/-l (reverse shell / listener)
+	regexp.MustCompile(`(?i)\bncat\s+.*-[el]`),                             // ncat with -e/-l
+	regexp.MustCompile(`(?i)\bsocat\b`),                                    // socat (arbitrary bidirectional streams)
+	regexp.MustCompile(`(?i)/dev/tcp/`),                                    // bash /dev/tcp backdoor
+	regexp.MustCompile(`(?i)/dev/udp/`),                                    // bash /dev/udp backdoor
+	regexp.MustCompile(`(?i)\bbash\s+-i\b`),                                // bash interactive (common in reverse shells)
+	regexp.MustCompile(`(?i)\bpython[23]?\s+.*-[ci]\b`),                    // python -c / python -i (code execution)
 	regexp.MustCompile(`(?i)\bperl\s+(?:.*?\s)?-[a-z]*[ei][^\s]*(?:\s|$)`), // perl -e / perl -i (code execution)
-	regexp.MustCompile(`(?i)\bruby\s+.*-[ei]\b`),             // ruby -e / ruby -i (code execution)
-	regexp.MustCompile(`(?i)\bnode\s+.*-[ei]\b`),             // node -e / node -i (code execution)
-	regexp.MustCompile(`(?i)\blua\b`),                        // lua interpreter (code execution)
+	regexp.MustCompile(`(?i)\bruby\s+.*-[ei]\b`),                           // ruby -e / ruby -i (code execution)
+	regexp.MustCompile(`(?i)\bnode\s+.*-[ei]\b`),                           // node -e / node -i (code execution)
+	regexp.MustCompile(`(?i)\blua\b`),                                      // lua interpreter (code execution)
 	// find with destructive actions
-	regexp.MustCompile(`(?i)\bfind\s+.*-delete\b`),           // find -delete (recursive deletion)
-	regexp.MustCompile(`(?i)\bfind\s+.*-exec\s+rm\b`),       // find -exec rm (recursive deletion)
+	regexp.MustCompile(`(?i)\bfind\s+.*-delete\b`),    // find -delete (recursive deletion)
+	regexp.MustCompile(`(?i)\bfind\s+.*-exec\s+rm\b`), // find -exec rm (recursive deletion)
 	// chmod 777 on critical paths
 	regexp.MustCompile(`(?i)\bchmod\s+(?:[0-7]*777|[0-7]*777[0-7]*)\s+/(?:etc|bin|sbin|usr)\b`),
 	// Writing to system-critical paths via tee
@@ -156,8 +156,8 @@ var readOnlyPrefixes = []string{
 	"grep ",
 	"egrep ",
 	"fgrep ",
-	"awk ",        // awk without -i is read-only; "awk -i" is in mutatingPrefixes
-	"sed ",        // sed without -i is read-only; "sed -i" is in mutatingPrefixes
+	"awk ", // awk without -i is read-only; "awk -i" is in mutatingPrefixes
+	"sed ", // sed without -i is read-only; "sed -i" is in mutatingPrefixes
 	"sort ",
 	"uniq ",
 	"wc ",
@@ -184,9 +184,9 @@ var readOnlyPrefixes = []string{
 	"docker volume ls",
 	"docker version",
 	"docker info",
-	"docker diff",       // shows filesystem changes (read-only)
-	"docker port",       // shows port mappings (read-only)
-	"docker top",        // shows processes in container (read-only)
+	"docker diff", // shows filesystem changes (read-only)
+	"docker port", // shows port mappings (read-only)
+	"docker top",  // shows processes in container (read-only)
 	"kubectl get",
 	"kubectl describe",
 	"kubectl logs",
@@ -194,7 +194,7 @@ var readOnlyPrefixes = []string{
 	"kubectl explain",
 	"kubectl version",
 	"kubectl cluster-info",
-	"kubectl auth can-i",  // check RBAC permissions (read-only)
+	"kubectl auth can-i", // check RBAC permissions (read-only)
 	"kubectl api-resources",
 	"kubectl api-versions",
 	"timedatectl",
@@ -212,7 +212,7 @@ var readOnlyPrefixes = []string{
 	"sar ",
 	"mpstat",
 	"pidstat",
-	"strace -p",    // strace with -p (attach to PID) is read-only observation
+	"strace -p", // strace with -p (attach to PID) is read-only observation
 	"ltrace -p",
 	"rpm -q",
 	"dpkg -l",
@@ -234,8 +234,8 @@ var readOnlyPrefixes = []string{
 	"at -l",
 	"iptables -L",
 	"iptables -S",
-	"find ",        // find without -delete/-exec is read-only; destructive variants are in forbiddenPatterns
-	"nmap ",        // basic scan only; aggressive modes should be reviewed
+	"find ", // find without -delete/-exec is read-only; destructive variants are in forbiddenPatterns
+	"nmap ", // basic scan only; aggressive modes should be reviewed
 }
 
 // mutatingPrefixes are command prefixes that change system state.
@@ -295,7 +295,7 @@ var mutatingPrefixes = []string{
 	"docker run",
 	"docker exec",
 	"docker build",
-	"docker cp",      // copy files in/out of container (data exfil/mutation)
+	"docker cp", // copy files in/out of container (data exfil/mutation)
 	"docker-compose",
 	"kubectl apply",
 	"kubectl delete",
@@ -309,7 +309,7 @@ var mutatingPrefixes = []string{
 	"kubectl taint",
 	"kubectl label",
 	"kubectl annotate",
-	"kubectl cp",     // copy files in/out of pod (data exfil/mutation)
+	"kubectl cp", // copy files in/out of pod (data exfil/mutation)
 	"iptables -A",
 	"iptables -D",
 	"iptables -I",
@@ -321,7 +321,7 @@ var mutatingPrefixes = []string{
 	"ufw delete",
 	"firewall-cmd",
 	"sysctl -w",
-	"sysctl -p",      // loads values from file — can be mutating
+	"sysctl -p", // loads values from file — can be mutating
 	"ulimit ",
 	"crontab ",
 	"at ",
@@ -336,14 +336,14 @@ var mutatingPrefixes = []string{
 	"renice ",
 	"mount ",
 	"umount ",
-	"chattr ",       // change file attributes (immutable flag etc.)
-	"lsattr ",       // technically read-only but listed for completeness
-	"setfacl ",      // modify ACLs
-	"tar ",          // extraction overwrites files
-	"unzip ",        // extraction overwrites files
-	"rsync ",        // can delete/overwrite remote files
-	"scp ",          // file transfer (data exfil/mutation)
-	"sftp ",         // file transfer (data exfil/mutation)
+	"chattr ",  // change file attributes (immutable flag etc.)
+	"lsattr ",  // technically read-only but listed for completeness
+	"setfacl ", // modify ACLs
+	"tar ",     // extraction overwrites files
+	"unzip ",   // extraction overwrites files
+	"rsync ",   // can delete/overwrite remote files
+	"scp ",     // file transfer (data exfil/mutation)
+	"sftp ",    // file transfer (data exfil/mutation)
 }
 
 // mutatingFlagPatterns matches command+flag combinations that are mutating
@@ -362,6 +362,20 @@ var mutatingFlagPatterns = []*regexp.Regexp{
 	// awk with in-place editing flag
 	regexp.MustCompile(`(?i)\bawk\s+(?:.*?\s)?-[a-z]*i[^\s]*(?:\s|$)`),
 }
+
+var databaseClients = map[string]struct{}{
+	"clickhouse-client": {},
+	"duckdb":            {},
+	"mariadb":           {},
+	"mongo":             {},
+	"mongosh":           {},
+	"mysql":             {},
+	"psql":              {},
+	"sqlite":            {},
+	"sqlite3":           {},
+}
+
+var databaseMutationPattern = regexp.MustCompile(`(?i)\b(?:update|delete\s+from|drop|create)\b`)
 
 // init sorts prefix lists by length descending so that longer, more-specific
 // prefixes are checked before shorter ones. This prevents "sed " from matching
@@ -472,6 +486,21 @@ func unwrapCommand(args []string) []string {
 	}
 
 	return args
+}
+
+func isDatabaseMutation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if _, ok := databaseClients[filepath.Base(strings.ToLower(args[0]))]; !ok {
+		return false
+	}
+	for _, arg := range args[1:] {
+		if databaseMutationPattern.MatchString(arg) {
+			return true
+		}
+	}
+	return false
 }
 
 func Classify(command string) CheckResult {
@@ -601,6 +630,11 @@ func Classify(command string) CheckResult {
 					flag(Mutating, "command contains mutating flags — re-run with allow_mutations=true after user approval")
 					return true
 				}
+			}
+
+			if isDatabaseMutation(args) {
+				flag(Mutating, "database mutation statement detected — re-run with allow_mutations=true after user approval")
+				return true
 			}
 
 			// Check mutating prefixes
