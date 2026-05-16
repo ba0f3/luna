@@ -100,6 +100,12 @@ func TestClassify(t *testing.T) {
 		{"Mutating - find -ok", "find /tmp -name '*.log' -ok rm {} ;", Mutating},
 		{"Mutating - strace without -p", "strace ls", Mutating},
 		{"Mutating - ltrace without -p", "ltrace ls", Mutating},
+		{"Mutating - psql UPDATE", "psql -d app -c 'UPDATE users SET admin = true'", Mutating},
+		{"Mutating - mysql DELETE", "mysql app -e 'DELETE FROM sessions WHERE expired = 1'", Mutating},
+		{"Mutating - mariadb DROP", "mariadb app --execute='DROP TABLE old_sessions'", Mutating},
+		{"Mutating - sqlite CREATE", "sqlite3 app.db 'CREATE TABLE audit_log (id integer)'", Mutating},
+		{"Mutating - path qualified psql UPDATE", "/usr/bin/psql -c 'update users set name = ''x'''", Mutating},
+		{"Mutating - env wrapped mysql DROP", "env MYSQL_PWD=secret mysql app -e 'drop database testdb'", Mutating},
 
 		// ── Forbidden ───────────────────────────────────────────
 		{"Forbidden - rm rf root", "rm -rf /", Forbidden},
@@ -195,7 +201,7 @@ func TestClassify(t *testing.T) {
 		{"Path - /usr/bin/curl -d", "/usr/bin/curl -d 'data' http://example.com", Mutating},
 
 		// ── Command length limit ────────────────────────────────
-		{"Length - exact limit", strings.Repeat("a", maxCommandLen), Mutating},  // unknown cmd at limit
+		{"Length - exact limit", strings.Repeat("a", maxCommandLen), Mutating}, // unknown cmd at limit
 		{"Length - over limit", strings.Repeat("a", maxCommandLen+1), Forbidden},
 		{"Length - over limit with valid prefix", "cat " + strings.Repeat("a", maxCommandLen), Forbidden},
 	}
@@ -246,7 +252,28 @@ func TestClassifyOrder(t *testing.T) {
 	}
 }
 
+func TestDatabaseMutationDetection(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"psql update", []string{"psql", "-c", "UPDATE users SET admin = true"}, true},
+		{"mysql delete", []string{"mysql", "-e", "DELETE FROM sessions WHERE expired = 1"}, true},
+		{"mariadb drop", []string{"mariadb", "--execute=DROP TABLE old_sessions"}, true},
+		{"sqlite create", []string{"sqlite3", "app.db", "CREATE TABLE audit_log (id integer)"}, true},
+		{"psql select", []string{"psql", "-c", "SELECT * FROM users"}, false},
+		{"grep update is not database", []string{"grep", "UPDATE", "/var/log/app.log"}, false},
+	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDatabaseMutation(tt.args); got != tt.want {
+				t.Fatalf("isDatabaseMutation(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestPrefixSorting(t *testing.T) {
 	// Verify that prefix lists are sorted by length descending after init().
