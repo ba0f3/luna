@@ -398,24 +398,88 @@ func unescape(s string) string {
 	return b.String()
 }
 
-func Classify(command string) CheckResult {
-	cmd := strings.TrimSpace(command)
+// unwrapCommand skips over wrapper commands like "env" and "xargs" to find
+// the actual executable being invoked. It handles wrapper options and
+// environment variable assignments.
+// Returns the updated args slice with the wrapper tokens removed.
+func unwrapCommand(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
 
-	// Normalize: strip common wrapper commands to allow regexes to match the actual command
-	wrappers := []string{"env ", "xargs "}
 	for {
-		stripped := false
-		for _, wrapper := range wrappers {
-			if strings.HasPrefix(cmd, wrapper) {
-				cmd = strings.TrimSpace(cmd[len(wrapper):])
-				stripped = true
+		if len(args) == 0 {
+			return args
+		}
+
+		cmd := args[0]
+
+		// Handle "env" wrapper
+		if cmd == "env" {
+			// Skip past env and any options/assignments
+			i := 1
+			for i < len(args) {
+				arg := args[i]
+				// Skip environment variable assignments (KEY=VALUE)
+				if strings.Contains(arg, "=") {
+					i++
+					continue
+				}
+				// Skip flags (starting with -)
+				if strings.HasPrefix(arg, "-") {
+					i++
+					// Some flags take arguments, but for simplicity we'll just skip the flag
+					// The next iteration will handle whether the next token is also a flag/assignment
+					continue
+				}
+				// First non-option/non-assignment token is the real command
 				break
 			}
+			if i >= len(args) {
+				// No actual command after env
+				return args
+			}
+			// Remove the wrapper tokens
+			args = args[i:]
+			continue
 		}
-		if !stripped {
-			break
+
+		// Handle "xargs" wrapper
+		if cmd == "xargs" {
+			// Skip past xargs and any options
+			i := 1
+			for i < len(args) {
+				arg := args[i]
+				// Skip flags (starting with -)
+				if strings.HasPrefix(arg, "-") {
+					i++
+					// Some flags take arguments, skip them if the next arg doesn't look like a flag
+					if i < len(args) && !strings.HasPrefix(args[i], "-") {
+						i++
+					}
+					continue
+				}
+				// First non-option token is the real command
+				break
+			}
+			if i >= len(args) {
+				// No actual command after xargs
+				return args
+			}
+			// Remove the wrapper tokens
+			args = args[i:]
+			continue
 		}
+
+		// Not a wrapper, we're done
+		break
 	}
+
+	return args
+}
+
+func Classify(command string) CheckResult {
+	cmd := strings.TrimSpace(command)
 
 	// 0. Reject excessively long commands (obfuscation / DoS vector).
 	if len(cmd) > maxCommandLen {
@@ -512,6 +576,16 @@ func Classify(command string) CheckResult {
 			}
 
 			// Strip directory path from the binary name (e.g. /usr/bin/rm -> rm)
+			args[0] = filepath.Base(args[0])
+
+			// Unwrap wrapper commands (env, xargs) to find the real executable
+			args = unwrapCommand(args)
+			if len(args) == 0 {
+				flag(Mutating, "command appears to be only a wrapper with no actual command")
+				return true
+			}
+
+			// Re-apply filepath.Base after unwrapping in case the unwrapped command has a path
 			args[0] = filepath.Base(args[0])
 
 			unquotedCmd := strings.Join(args, " ")
