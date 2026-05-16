@@ -16,6 +16,6 @@ USER fuzztarget
 # Harness container (runs the Go fuzzer)
 FROM debian:bookworm-slim AS harness
 # Install docker CLI to interact with sandbox
-RUN apt-get update && apt-get install -y docker.io ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends docker.io ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /fuzz.test /fuzz.test
 ENTRYPOINT ["/fuzz.test"]

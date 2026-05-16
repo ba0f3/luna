@@ -103,17 +103,21 @@ Each pending approval record contains:
 - approval ID
 - tool name
 - host
-- command or transfer target
-- normalized request body
+- redacted command or transfer target
+- normalized, redacted request body
 - classification and reason
 - timeout
 - request timestamp
 - expiry timestamp
-- SHA-256 fingerprint over stable request fields
+- SHA-256 fingerprint over stable, redacted request fields
 - status: pending, approved, denied, expired, consumed
 - approval provider decision metadata
 - approver identity when decided
 - audit timestamps
+- redaction metadata (redaction algorithm/version used)
+
+**Mandatory Secret Redaction:** A deterministic redaction step (e.g., `redactSecrets()`) MUST run before any approval or audit persistence. Fields like "command", "transfer target", and "normalized request body" must only be stored in their redacted form.
+The SHA-256 fingerprint must be computed from a defined canonical representation of the *redacted* request (e.g., `computeFingerprint(canonicalize(redactedRequest))`) so the fingerprint itself cannot leak secrets via brute force or rainbow table attacks. All state transitions and audit events must reference the redacted fields.
 
 The fingerprint must be computed by the interceptor. goclaw cannot supply its own fingerprint.
 
@@ -188,6 +192,8 @@ luna-interceptor approvals deny <approval-id>
 ```
 
 The CLI uses the same approval store and same single-use semantics as remote providers. It does not bypass request fingerprint matching.
+
+**Explicit Authorization:** The CLI handlers for `approve` and `deny` must explicitly authorize the executing user. They must check that the OS principal running the command maps to a configured approver identity. Unauthorized attempts must be rejected with an error, and an audit event must be emitted detailing the principal identity, command, approval-id, timestamp, and outcome.
 
 ## Approval Store And Audit Log
 

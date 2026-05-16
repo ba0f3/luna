@@ -1,6 +1,7 @@
 services:
   fuzz-sandbox:
     image: luna-fuzz-sandbox
+    container_name: fuzz-sandbox
     build:
       context: .
       dockerfile: interceptor/Dockerfile.fuzz

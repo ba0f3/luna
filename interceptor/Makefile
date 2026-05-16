@@ -1,4 +1,4 @@
-.PHONY: build test fuzz fuzz-race lint tidy clean
+.PHONY: build test fuzz fuzz-race lint tidy clean fuzz-bypass fuzz-docker-build fuzz-docker
 
 BINARY := ../bin/luna-interceptor
 GO     := go

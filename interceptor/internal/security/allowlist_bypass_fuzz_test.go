@@ -2,10 +2,12 @@ package security
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // FuzzMutationBypass detects if a command classified as ReadOnly can actually
@@ -63,7 +65,9 @@ func FuzzMutationBypass(f *testing.F) {
 		}
 
 		// Execute the command in the read-only sandbox container
-		dockerCmd := exec.Command("docker", "exec", containerName, "sh", "-c", cmd)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		dockerCmd := exec.CommandContext(ctx, "docker", "exec", containerName, "sh", "-c", cmd)
 		var stderr bytes.Buffer
 		dockerCmd.Stderr = &stderr
 		
