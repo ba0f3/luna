@@ -47,7 +47,7 @@ redacts secret-like process arguments before returning JSON.`),
 			timeoutSec = 30
 		}
 
-		result := runInventoryScan(pool, host, time.Duration(timeoutSec)*time.Second)
+		result := runInventoryScan(pool, host, time.Duration(timeoutSec*float64(time.Second)))
 		payload, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("scan_host_inventory marshal error: %v", err)), nil
@@ -157,7 +157,7 @@ func inventoryCollectors() []inventoryCommand {
 		},
 		{
 			name:    "wazuh_client_keys",
-			command: "cat /var/ossec/etc/client.keys",
+			command: "awk '{print $1, $2}' /var/ossec/etc/client.keys",
 			parse:   func(r *InventoryScanResult, out string) { r.Wazuh = parseWazuhClientKeys(out) },
 		},
 	}

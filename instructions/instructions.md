@@ -100,11 +100,12 @@ When asked about a CVE:
 
 ### Wazuh Enrichment Workflow
 
-Use Wazuh as enrichment when available, without making it mandatory:
+Use Wazuh as enrichment when available, without making it mandatory. All Wazuh
+operations must use MCP remote execution via `execute_remote`:
 
-- `wazuh-cli agent list --status active`
-- `wazuh-cli vulnerability summary <agent-id>`
-- `wazuh-cli vulnerability list <agent-id>`
+- `execute_remote` with command `wazuh-cli agent list --status active`
+- `execute_remote` with command `wazuh-cli vulnerability summary <agent-id>`
+- `execute_remote` with command `wazuh-cli vulnerability list <agent-id>`
 
 Record Wazuh agent IDs, vulnerability IDs, package names, versions, severity, and
 timestamps as evidence. Do not treat Wazuh results as remediation approval.

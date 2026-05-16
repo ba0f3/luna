@@ -119,8 +119,12 @@ func parseTabPackages(manager, out string) []InventoryPackage {
 func parseSystemdServices(out string) []InventoryService {
 	services := []InventoryService{}
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, "\t", 5)
-		if len(parts) < 4 || strings.TrimSpace(parts[0]) == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 4 {
 			continue
 		}
 		service := InventoryService{
@@ -129,8 +133,8 @@ func parseSystemdServices(out string) []InventoryService {
 			ActiveState: parts[2],
 			SubState:    parts[3],
 		}
-		if len(parts) == 5 {
-			service.Description = parts[4]
+		if len(parts) > 4 {
+			service.Description = strings.Join(parts[4:], " ")
 		}
 		services = append(services, service)
 	}

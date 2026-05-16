@@ -6,7 +6,7 @@
 
 **Architecture:** Implement two read-only MCP tools in the Go interceptor: `scan_host_inventory` for normalized SSH inventory and `lookup_cve` for structured external advisory lookup. Keep phase-1 learning and CVE workflows in the primary Luna prompt, backed by a local `data/infrastructure/` YAML/Markdown knowledge base skeleton.
 
-**Tech Stack:** Go 1.25.5, `github.com/mark3labs/mcp-go`, existing Luna SSH pool, Go standard `encoding/json` and `net/http`, OpenCode instruction Markdown, YAML/Markdown repository data files.
+**Tech Stack:** Go 1.25.10, `github.com/mark3labs/mcp-go`, existing Luna SSH pool, Go standard `encoding/json` and `net/http`, OpenCode instruction Markdown, YAML/Markdown repository data files.
 
 ---
 
@@ -297,7 +297,7 @@ systemctl list-units --type=service --all --no-legend --no-pager --plain
 ps -eo user=,pid=,pcpu=,pmem=,args= --no-headers
 ss -H -tulpen
 docker ps -a --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}'
-cat /var/ossec/etc/client.keys
+awk '{print $1, $2}' /var/ossec/etc/client.keys
 ```
 
 The tool must return indented JSON and must preserve partial collector errors in the `collectors` array.

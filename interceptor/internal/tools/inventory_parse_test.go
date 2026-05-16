@@ -45,7 +45,7 @@ func TestParseAPKPackages(t *testing.T) {
 }
 
 func TestParseSystemdServices(t *testing.T) {
-	out := "sshd.service\tloaded\tactive\trunning\tOpenSSH server daemon\n"
+	out := "sshd.service  loaded  active  running  OpenSSH server daemon\n"
 	got := parseSystemdServices(out)
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))

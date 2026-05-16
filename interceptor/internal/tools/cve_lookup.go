@@ -48,7 +48,13 @@ func registerLookupCVE(s *server.MCPServer) {
 		}
 		cveID, ok := normalizeCVEID(raw)
 		if !ok {
-			return mcp.NewToolResultText(fmt.Sprintf("INVALID_CVE_ID: %q is not a valid CVE identifier", raw)), nil
+			errorResult := map[string]interface{}{
+				"error":   "INVALID_CVE_ID",
+				"message": fmt.Sprintf("%q is not a valid CVE identifier", raw),
+				"raw":     raw,
+			}
+			payload, _ := json.MarshalIndent(errorResult, "", "  ")
+			return mcp.NewToolResultText(string(payload)), nil
 		}
 
 		client := &http.Client{Timeout: 20 * time.Second}
