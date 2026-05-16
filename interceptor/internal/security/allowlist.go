@@ -74,17 +74,17 @@ var forbiddenPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\biptables\s+-F\b`),    // iptables -F (flush all rules)
 	regexp.MustCompile(`(?i)\bnft\s+flush\b`),      // nft flush
 	// Privilege escalation / credential modification
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*passwd\b`),                         // passwd
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*(?:useradd|userdel|usermod)\b`),    // user management
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*(?:groupadd|groupdel|groupmod)\b`), // group management
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*visudo\b`),                        // sudoers edit
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*sudo\b`),                          // sudo (privilege escalation)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*su\b`),                            // su (switch user)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*doas\b`),                          // doas (OpenBSD privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;])passwd\b`),                         // passwd
+	regexp.MustCompile(`(?i)(?:^|[|&;])(?:useradd|userdel|usermod)\b`),    // user management
+	regexp.MustCompile(`(?i)(?:^|[|&;])(?:groupadd|groupdel|groupmod)\b`), // group management
+	regexp.MustCompile(`(?i)(?:^|[|&;])visudo\b`),                        // sudoers edit
+	regexp.MustCompile(`(?i)(?:^|[|&;])sudo\b`),                          // sudo (privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;])su\b`),                            // su (switch user)
+	regexp.MustCompile(`(?i)(?:^|[|&;])doas\b`),                          // doas (OpenBSD privilege escalation)
 	// Kernel module manipulation
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*insmod\b`),   // insmod (load kernel module)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*modprobe\b`), // modprobe (load kernel module)
-	regexp.MustCompile(`(?i)(?:^|[|&;])\s*rmmod\b`),    // rmmod (remove kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;])insmod\b`),   // insmod (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;])modprobe\b`), // modprobe (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;])rmmod\b`),    // rmmod (remove kernel module)
 	// Reverse shell / network backdoor patterns
 	regexp.MustCompile(`(?i)\bnc\s+.*-[el]`),                // nc with -e/-l (reverse shell / listener)
 	regexp.MustCompile(`(?i)\bncat\s+.*-[el]`),              // ncat with -e/-l
@@ -118,15 +118,12 @@ var readOnlyPrefixes = []string{
 	"journalctl",
 	"cat ",
 	"ls",
-	"ps ",
-	"ps\n",
+	"ps",
 	"top -b",
 	"htop",
-	"df ",
-	"df\n",
+	"df",
 	"free",
-	"ss ",
-	"ss\n",
+	"ss",
 	"ip addr",
 	"ip link",
 	"ip route",
@@ -141,9 +138,9 @@ var readOnlyPrefixes = []string{
 	"uname",
 	"uptime",
 	"who",
-	"w\n",
+	"w",
 	"last",
-	"id\n",
+	"id",
 	"whoami",
 	"hostname",
 	"date",
@@ -176,7 +173,6 @@ var readOnlyPrefixes = []string{
 	"arp ",
 	"dmesg",
 	"sysctl -a",
-	"env",
 	"printenv",
 	"echo ",
 	"docker ps",
@@ -402,6 +398,82 @@ func unescape(s string) string {
 	return b.String()
 }
 
+// unwrapCommand skips over wrapper commands like "env" and "xargs" to find
+// the actual executable being invoked. It handles wrapper options and
+// environment variable assignments.
+// Returns the updated args slice with the wrapper tokens removed.
+func unwrapCommand(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+
+	for {
+		if len(args) == 0 {
+			return args
+		}
+
+		cmd := args[0]
+
+		// Handle "env" wrapper
+		if cmd == "env" {
+			// Skip past env and any options/assignments
+			i := 1
+			for i < len(args) {
+				arg := args[i]
+				// Skip environment variable assignments (KEY=VALUE)
+				if strings.Contains(arg, "=") {
+					i++
+					continue
+				}
+				// Skip flags (starting with -)
+				if strings.HasPrefix(arg, "-") {
+					i++
+					// Some flags take arguments, but for simplicity we'll just skip the flag
+					// The next iteration will handle whether the next token is also a flag/assignment
+					continue
+				}
+				// First non-option/non-assignment token is the real command
+				break
+			}
+			if i >= len(args) {
+				// No actual command after env
+				return args
+			}
+			// Remove the wrapper tokens
+			args = args[i:]
+			continue
+		}
+
+		// Handle "xargs" wrapper
+		if cmd == "xargs" {
+			// Skip past xargs and any options
+			i := 1
+			for i < len(args) {
+				arg := args[i]
+				// Skip flags (starting with -)
+				if strings.HasPrefix(arg, "-") {
+					i++
+					continue
+				}
+				// First non-option token is the real command
+				break
+			}
+			if i >= len(args) {
+				// No actual command after xargs
+				return args
+			}
+			// Remove the wrapper tokens
+			args = args[i:]
+			continue
+		}
+
+		// Not a wrapper, we're done
+		break
+	}
+
+	return args
+}
+
 func Classify(command string) CheckResult {
 	cmd := strings.TrimSpace(command)
 
@@ -502,6 +574,16 @@ func Classify(command string) CheckResult {
 			// Strip directory path from the binary name (e.g. /usr/bin/rm -> rm)
 			args[0] = filepath.Base(args[0])
 
+			// Unwrap wrapper commands (env, xargs) to find the real executable
+			args = unwrapCommand(args)
+			if len(args) == 0 {
+				flag(Mutating, "command appears to be only a wrapper with no actual command")
+				return true
+			}
+
+			// Re-apply filepath.Base after unwrapping in case the unwrapped command has a path
+			args[0] = filepath.Base(args[0])
+
 			unquotedCmd := strings.Join(args, " ")
 			lowerCmd := strings.ToLower(unquotedCmd)
 
@@ -524,7 +606,8 @@ func Classify(command string) CheckResult {
 			// Check mutating prefixes
 			matchedMutating := false
 			for _, prefix := range mutatingPrefixes {
-				if strings.HasPrefix(lowerCmd, strings.ToLower(prefix)) {
+				p := strings.TrimRight(strings.ToLower(prefix), " \n")
+				if lowerCmd == p || strings.HasPrefix(lowerCmd, p+" ") {
 					flag(Mutating, "command modifies system state — re-run with allow_mutations=true after user approval")
 					matchedMutating = true
 					break
@@ -537,7 +620,8 @@ func Classify(command string) CheckResult {
 			// Check read-only prefixes
 			matchedReadOnly := false
 			for _, prefix := range readOnlyPrefixes {
-				if strings.HasPrefix(lowerCmd, strings.ToLower(prefix)) {
+				p := strings.TrimRight(strings.ToLower(prefix), " \n")
+				if lowerCmd == p || strings.HasPrefix(lowerCmd, p+" ") {
 					matchedReadOnly = true
 					break
 				}
