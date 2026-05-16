@@ -11,4 +11,5 @@ func Register(s *server.MCPServer, pool *ssh.Pool) {
 	registerExecuteRemote(s, pool)
 	registerReadFile(s, pool)
 	registerTransferFile(s, pool)
+	registerScanHostInventory(s, pool)
 }
