@@ -453,10 +453,6 @@ func unwrapCommand(args []string) []string {
 				// Skip flags (starting with -)
 				if strings.HasPrefix(arg, "-") {
 					i++
-					// Some flags take arguments, skip them if the next arg doesn't look like a flag
-					if i < len(args) && !strings.HasPrefix(args[i], "-") {
-						i++
-					}
 					continue
 				}
 				// First non-option token is the real command
