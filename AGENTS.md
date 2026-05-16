@@ -72,6 +72,13 @@ luna/
 3. If the tool executes commands, add classification logic to `security/allowlist.go`
 4. Run `make build && make test`
 
+## Infrastructure Knowledge Base
+
+`data/infrastructure/` stores Luna's local infrastructure knowledge base. YAML
+files are source data; Markdown files are navigation and notes. Luna records
+provenance and confidence for learned facts and redacts secret-like process
+arguments before persistence.
+
 ## Release
 
 Tags trigger GoReleaser via GitHub Actions (`.github/workflows/release.yml`).

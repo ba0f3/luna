@@ -37,6 +37,8 @@ OpenCode (LLM) ──MCP stdio──► luna-interceptor (Go binary)
 | `execute_remote` | Run shell command via SSH | No (by default) |
 | `read_file` | Fetch file via SFTP | No |
 | `transfer_file` | Upload file via SFTP | Yes — requires approval |
+| `scan_host_inventory` | Run a fixed read-only inventory scan and return normalized JSON | No |
+| `lookup_cve` | Query external CVE advisory sources and return normalized JSON | No |
 
 ## Quick Start
 
