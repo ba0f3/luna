@@ -94,18 +94,22 @@ When asked about a CVE:
 3. Check existing `data/infrastructure/` records for affected software and versions.
 4. If data is stale or incomplete, ask before running fresh read-only scans.
 5. Call `scan_host_inventory` for relevant approved hosts.
-6. Use `wazuh-cli agent list --status active` and `wazuh-cli vulnerability list <agent-id>` when Wazuh is configured.
+6. When Wazuh is configured, run the local `wazuh-cli` commands `wazuh-cli agent list --status active` and `wazuh-cli vulnerability list <agent-id>` (see Wazuh Enrichment Workflow). `wazuh-cli` is a local binary; use it on the machine where it is installed, not via `execute_remote` on managed hosts unless that host actually provides the CLI.
 7. Update `data/infrastructure/cves/<CVE>.yaml` with advisory, Wazuh, scan, and impact evidence.
 8. Report a host impact matrix with confidence: confirmed, likely, possible, not affected, or unknown.
 
 ### Wazuh Enrichment Workflow
 
-Use Wazuh as enrichment when available, without making it mandatory. All Wazuh
-operations must use MCP remote execution via `execute_remote`:
+Use Wazuh as enrichment when available, without making it mandatory. `wazuh-cli`
+is a **local** binary (Wazuh manager/API client): run it in the environment
+where it is installed. **All ops go through MCP** still applies to SSH work on
+managed hosts (`execute_remote`, SFTP tools); it does not require tunneling
+these CLI calls through `execute_remote` unless you intentionally run `wazuh-cli`
+on a remote host that has it.
 
-- `execute_remote` with command `wazuh-cli agent list --status active`
-- `execute_remote` with command `wazuh-cli vulnerability summary <agent-id>`
-- `execute_remote` with command `wazuh-cli vulnerability list <agent-id>`
+- `wazuh-cli agent list --status active`
+- `wazuh-cli vulnerability summary <agent-id>`
+- `wazuh-cli vulnerability list <agent-id>`
 
 Record Wazuh agent IDs, vulnerability IDs, package names, versions, severity, and
 timestamps as evidence. Do not treat Wazuh results as remediation approval.
