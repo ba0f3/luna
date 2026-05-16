@@ -76,6 +76,7 @@ Collector output:
 - Ports: listening TCP/UDP sockets, process names/PIDs when visible.
 - Containers: Docker and Kubernetes read-only summaries when available.
 - Wazuh hints: local Wazuh agent ID/name/version when discoverable through read-only files or commands.
+- Process command lines with secret-like arguments redacted by default.
 
 Constraints:
 
@@ -103,6 +104,8 @@ Output:
 - Remediation guidance from advisory sources.
 
 The tool should keep advisory evidence separate from local host exposure evidence.
+
+`lookup_cve` should live in the Luna interceptor so CVE lookup is a structured MCP capability rather than an ad hoc prompt workflow.
 
 ## Knowledge Base Layout
 
@@ -261,7 +264,7 @@ Consider adding subagents later:
 - `@inventory` for host inventory and data maintenance.
 - `@vulnerability` for CVE impact analysis and Wazuh correlation.
 
-Phase 1 can keep this in the primary `luna` prompt to avoid adding orchestration complexity too early.
+Phase 1 keeps these workflows in the primary `luna` prompt to avoid adding orchestration complexity too early. Dedicated `@inventory` and `@vulnerability` subagents are deferred until the primary workflows prove stable.
 
 ## Testing Plan
 
@@ -305,7 +308,7 @@ Manual verification:
 
 ### Phase 3: `lookup_cve`
 
-- Add MCP tool implementation.
+- Add MCP tool implementation inside the Luna interceptor.
 - Query external CVE/advisory sources.
 - Normalize advisory output.
 - Add tests for validation and source failure handling.
@@ -316,9 +319,8 @@ Manual verification:
 - Add host-to-Wazuh-agent mapping in the knowledge base.
 - Record Wazuh vulnerability evidence in host and CVE files.
 
-## Open Questions
+## Resolved Design Decisions
 
-1. Whether phase 1 should add dedicated `@inventory` and `@vulnerability` subagents immediately or keep workflows in primary Luna first.
-2. Whether `lookup_cve` should live in the Luna interceptor or remain an OpenCode-side tool/workflow.
-3. Whether scans should include full process command lines by default or redact arguments that look secret-like.
-
+1. Phase 1 keeps inventory and vulnerability workflows in the primary Luna prompt. New subagents can be added later if the workflows become large or repetitive.
+2. `lookup_cve` lives in the Luna interceptor as a structured read-only MCP tool.
+3. `scan_host_inventory` redacts process arguments that look secret-like by default.
