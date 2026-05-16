@@ -1,58 +1,54 @@
 {
-    "$schema": "https://opencode.ai/config.json",
-    "instructions": [
-        "instructions/instructions.md"
-    ],
-    "default_agent": "luna",
-    "permission": {
-        "bash": "ask",
-        "edit": "ask"
-    },
-    "mcp": {
-        "luna": {
-            "type": "local",
-            "command": [
-                "./bin/luna-interceptor"
-            ],
-            "enabled": true
-        }
-    },
-    "agent": {
-        "luna": {
-            "description": "Primary remote systems administration agent. Routes all ops through the MCP interceptor.",
-            "mode": "primary",
-            "prompt": "{file:./instructions/instructions.md}",
-            "permission": {
-                "bash": "deny",
-                "edit": "ask"
-            }
-        },
-        "debugger": {
-            "description": "Analyzes logs, traces processes, and identifies root causes on remote systems. Read-only.",
-            "mode": "subagent",
-            "prompt": "{file:./instructions/agents/debugger.md}",
-            "permission": {
-                "bash": "deny",
-                "edit": "deny"
-            }
-        },
-        "deployer": {
-            "description": "Executes approved configuration changes and deployments on remote Linux systems.",
-            "mode": "subagent",
-            "prompt": "{file:./instructions/agents/deployer.md}",
-            "permission": {
-                "bash": "deny",
-                "edit": "deny"
-            }
-        },
-        "network": {
-            "description": "Tests SSH connectivity, firewall rules, DNS resolution, and port bindings. Read-only.",
-            "mode": "subagent",
-            "prompt": "{file:./instructions/agents/network.md}",
-            "permission": {
-                "bash": "deny",
-                "edit": "deny"
-            }
-        }
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["instructions/instructions.md"],
+  "default_agent": "luna",
+  "permission": {
+    "bash": "ask",
+    "edit": "ask"
+  },
+  "mcp": {
+    "luna": {
+      "type": "local",
+      "command": ["./bin/luna-interceptor"],
+      "enabled": true
     }
+  },
+  "agent": {
+    "luna": {
+      "description": "Primary remote systems administration agent. Routes all ops through the MCP interceptor.",
+      "mode": "primary",
+      "prompt": "{file:./instructions/instructions.md}",
+      "permission": {
+        "bash": "deny",
+        "edit": "ask"
+      }
+    },
+    "debugger": {
+      "description": "Analyzes logs, traces processes, and identifies root causes on remote systems. Read-only.",
+      "mode": "subagent",
+      "prompt": "{file:./instructions/agents/debugger.md}",
+      "permission": {
+        "bash": "deny",
+        "edit": "deny"
+      }
+    },
+    "deployer": {
+      "description": "Executes approved configuration changes and deployments on remote Linux systems.",
+      "mode": "subagent",
+      "prompt": "{file:./instructions/agents/deployer.md}",
+      "permission": {
+        "bash": "deny",
+        "edit": "deny"
+      }
+    },
+    "network": {
+      "description": "Tests SSH connectivity, firewall rules, DNS resolution, and port bindings. Read-only.",
+      "mode": "subagent",
+      "prompt": "{file:./instructions/agents/network.md}",
+      "permission": {
+        "bash": "deny",
+        "edit": "deny"
+      }
+    }
+  }
 }
