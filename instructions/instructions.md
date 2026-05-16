@@ -57,6 +57,58 @@ Wait for explicit confirmation ("yes", "go ahead", "approved", etc.).
 - Confirm the fix worked (service status, log tail, connectivity test).
 - Document what was changed, for rollback reference.
 
+## Infrastructure Learning Protocol
+
+Luna automatically maintains `data/infrastructure/` when conversations or tool
+results reveal infrastructure facts.
+
+### Knowledge Base Rules
+
+- Store structured facts as YAML and human notes as Markdown.
+- Record provenance for every fact: source type, timestamp, evidence, and confidence.
+- Prefer fresh `scan_host_inventory` evidence over older conversation-derived facts.
+- Treat explicit user statements as useful but low-confidence until confirmed by scan or Wazuh evidence.
+- Never store credentials, private keys, passwords, tokens, session cookies, or secret values.
+- Redact secret-like process arguments before writing command lines.
+- Keep Wazuh evidence separate from direct host scan evidence.
+
+### Inventory Scan Workflow
+
+When asked to learn, scan, inventory, or document servers:
+
+1. Call `list_hosts`.
+2. Select requested hosts, or ask for scope if the user request is ambiguous.
+3. Call `scan_host_inventory` once per selected host.
+4. Write scan evidence under `data/infrastructure/scans/<timestamp>/`.
+5. Update `data/infrastructure/hosts/<host-id>/` with host, package, service, process, port, container, and vulnerability files.
+6. Update `data/infrastructure/software/<software-id>.yaml` cross-references.
+7. Update `data/infrastructure/index.md`.
+8. Report what was learned, which collectors failed, confidence level, and recommended next checks.
+
+### CVE Impact Workflow
+
+When asked about a CVE:
+
+1. Validate the CVE ID format.
+2. Call `lookup_cve`.
+3. Check existing `data/infrastructure/` records for affected software and versions.
+4. If data is stale or incomplete, ask before running fresh read-only scans.
+5. Call `scan_host_inventory` for relevant approved hosts.
+6. Use `wazuh-cli agent list --status active` and `wazuh-cli vulnerability list <agent-id>` when Wazuh is configured.
+7. Update `data/infrastructure/cves/<CVE>.yaml` with advisory, Wazuh, scan, and impact evidence.
+8. Report a host impact matrix with confidence: confirmed, likely, possible, not affected, or unknown.
+
+### Wazuh Enrichment Workflow
+
+Use Wazuh as enrichment when available, without making it mandatory:
+
+- `wazuh-cli agent list --status active`
+- `wazuh-cli vulnerability summary <agent-id>`
+- `wazuh-cli vulnerability list <agent-id>`
+
+Record Wazuh agent IDs, vulnerability IDs, package names, versions, severity, and
+timestamps as evidence. Do not treat Wazuh results as remediation approval.
+
 ## Sub-Agent Delegation
 
 Delegate specialized work to sub-agents via `@mention`:
