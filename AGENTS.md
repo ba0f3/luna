@@ -38,7 +38,8 @@ It operates exclusively through the `luna-interceptor` MCP server over SSH.
 cd interceptor
 go mod tidy
 make build   # → ../bin/luna-interceptor
-make test    # → only security/allowlist tests exist currently
+make test    # → unit tests plus fuzz corpus replay (Fuzz* seeds)
+make fuzz    # → exploratory FuzzClassify with a 5m budget (developers)
 make lint    # → requires golangci-lint installed
 ```
 

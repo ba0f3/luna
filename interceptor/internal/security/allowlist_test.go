@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func TestClassify(t *testing.T) {
-	tests := []struct {
-		name     string
-		command  string
-		expected Classification
-	}{
+// classifyRegressionCases holds expected Classify regression vectors for unit tests and fuzz corpus seeds.
+var classifyRegressionCases = []struct {
+	name     string
+	command  string
+	expected Classification
+}{
 		// ── ReadOnly ────────────────────────────────────────────
 		{"ReadOnly - systemctl status", "systemctl status nginx", ReadOnly},
 		{"ReadOnly - journalctl", "journalctl -u sshd", ReadOnly},
@@ -204,9 +204,10 @@ func TestClassify(t *testing.T) {
 		{"Length - exact limit", strings.Repeat("a", maxCommandLen), Mutating}, // unknown cmd at limit
 		{"Length - over limit", strings.Repeat("a", maxCommandLen+1), Forbidden},
 		{"Length - over limit with valid prefix", "cat " + strings.Repeat("a", maxCommandLen), Forbidden},
-	}
+}
 
-	for _, tt := range tests {
+func TestClassify(t *testing.T) {
+	for _, tt := range classifyRegressionCases {
 		t.Run(tt.name, func(t *testing.T) {
 			result := Classify(tt.command)
 			if result.Class != tt.expected {
@@ -216,14 +217,12 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-func TestClassifyOrder(t *testing.T) {
-	// Verify that mutating prefixes are checked before read-only prefixes,
-	// and that longer prefixes take priority over shorter ones.
-	tests := []struct {
-		name     string
-		command  string
-		expected Classification
-	}{
+// classifyOrderRegressionCases complements classifyRegressionCases for prefix-priority regressions.
+var classifyOrderRegressionCases = []struct {
+	name     string
+	command  string
+	expected Classification
+}{
 		// sed -i must be Mutating, not ReadOnly (despite "sed " being ReadOnly)
 		{"priority - sed -i before sed", "sed -i 's/old/new/g' file.txt", Mutating},
 		// awk -i must be Mutating
@@ -240,9 +239,10 @@ func TestClassifyOrder(t *testing.T) {
 		{"priority - sysctl -w before sysctl -a", "sysctl -w net.ipv4.ip_forward=1", Mutating},
 		// sysctl -p must be Mutating
 		{"priority - sysctl -p", "sysctl -p", Mutating},
-	}
+}
 
-	for _, tt := range tests {
+func TestClassifyOrder(t *testing.T) {
+	for _, tt := range classifyOrderRegressionCases {
 		t.Run(tt.name, func(t *testing.T) {
 			result := Classify(tt.command)
 			if result.Class != tt.expected {

@@ -12,3 +12,7 @@ interceptor/vendor/
 
 # Logs
 *.log
+
+# Fuzzing
+fuzz-corpus/
+fuzz-crashes/
