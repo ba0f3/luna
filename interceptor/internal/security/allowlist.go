@@ -74,17 +74,17 @@ var forbiddenPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\biptables\s+-F\b`), // iptables -F (flush all rules)
 	regexp.MustCompile(`(?i)\bnft\s+flush\b`),   // nft flush
 	// Privilege escalation / credential modification
-	regexp.MustCompile(`(?i)(?:^|[|&;])passwd\b`),                         // passwd
-	regexp.MustCompile(`(?i)(?:^|[|&;])(?:useradd|userdel|usermod)\b`),    // user management
-	regexp.MustCompile(`(?i)(?:^|[|&;])(?:groupadd|groupdel|groupmod)\b`), // group management
-	regexp.MustCompile(`(?i)(?:^|[|&;])visudo\b`),                         // sudoers edit
-	regexp.MustCompile(`(?i)(?:^|[|&;])sudo\b`),                           // sudo (privilege escalation)
-	regexp.MustCompile(`(?i)(?:^|[|&;])su\b`),                             // su (switch user)
-	regexp.MustCompile(`(?i)(?:^|[|&;])doas\b`),                           // doas (OpenBSD privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])passwd\b`),                         // passwd
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])(?:useradd|userdel|usermod)\b`),    // user management
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])(?:groupadd|groupdel|groupmod)\b`), // group management
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])visudo\b`),                         // sudoers edit
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])sudo\b`),                           // sudo (privilege escalation)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])su\b`),                             // su (switch user)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])doas\b`),                           // doas (OpenBSD privilege escalation)
 	// Kernel module manipulation
-	regexp.MustCompile(`(?i)(?:^|[|&;])insmod\b`),   // insmod (load kernel module)
-	regexp.MustCompile(`(?i)(?:^|[|&;])modprobe\b`), // modprobe (load kernel module)
-	regexp.MustCompile(`(?i)(?:^|[|&;])rmmod\b`),    // rmmod (remove kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])insmod\b`),   // insmod (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])modprobe\b`), // modprobe (load kernel module)
+	regexp.MustCompile(`(?i)(?:^|[|&;\s])rmmod\b`),    // rmmod (remove kernel module)
 	// Reverse shell / network backdoor patterns
 	regexp.MustCompile(`(?i)\bnc\s+.*-[el]`),                               // nc with -e/-l (reverse shell / listener)
 	regexp.MustCompile(`(?i)\bncat\s+.*-[el]`),                             // ncat with -e/-l
